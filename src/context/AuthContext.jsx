@@ -10,6 +10,50 @@ const api = axios.create({
     }
 });
 
+// Add request interceptor to include auth token in all requests
+api.interceptors.request.use(
+    (config) => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`;
+        }
+        return config;
+    },
+    (error) => {
+        return Promise.reject(error);
+    }
+);
+
+// Add response interceptor to handle token expiration
+api.interceptors.response.use(
+    (response) => {
+        return response;
+    },
+    async (error) => {
+        const originalRequest = error.config;
+        
+        // If error is 401 (Unauthorized) and we haven't tried to refresh token yet
+        if (error.response && error.response.status === 401 && !originalRequest._retry) {
+            originalRequest._retry = true;
+            
+            try {
+                // Try to refresh the token or redirect to login
+                localStorage.removeItem('token');
+                localStorage.removeItem('brokerId');
+                localStorage.removeItem('brokerName');
+                
+                // Redirect to login page
+                window.location.href = '/login';
+                return Promise.reject(error);
+            } catch (refreshError) {
+                return Promise.reject(refreshError);
+            }
+        }
+        
+        return Promise.reject(error);
+    }
+);
+
 const AuthContext = createContext();
 
 export const useAuth = () => {
@@ -23,23 +67,31 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
     const [broker, setBroker] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [sessionChecked, setSessionChecked] = useState(false);
 
     // Check session status on mount
     useEffect(() => {
-        // Clear all localStorage items on initial load
-        const storedItems = Object.keys(localStorage);
-        if (storedItems.includes('activeSection') ||
-            storedItems.includes('email') ||
-            storedItems.includes('theme') ||
-            storedItems.includes('token') ||
-            storedItems.includes('user')) {
-            localStorage.clear();
-        }
+        // We don't clear localStorage on initial load anymore
+        // This allows the session to persist across page refreshes
         checkSession();
     }, []);
 
     const checkSession = async () => {
         try {
+            setLoading(true);
+            
+            // Get token from localStorage
+            const token = localStorage.getItem('token');
+            
+            if (!token) {
+                console.log('No token found, user is not authenticated');
+                setBroker(null);
+                setLoading(false);
+                setSessionChecked(true);
+                return;
+            }
+            
+            // Make API call to check session with token
             const response = await api.get('/auth/check');
             console.log('Session check response:', response.data);
 
@@ -51,7 +103,7 @@ export const AuthProvider = ({ children }) => {
                 // Store broker ID in local storage - handle different possible structures
                 if (brokerData) {
                     // Try to get ID from different possible properties
-                    const brokerId = brokerData._id || brokerData.id || brokerData.broker_id;
+                    const brokerId = brokerData.brokerId || brokerData.id || brokerData._id || brokerData.broker_id;
                     const brokerName = brokerData.name || brokerData.fullName || brokerData.username || '';
                     const brokerEmail = brokerData.email || '';
 
@@ -60,7 +112,6 @@ export const AuthProvider = ({ children }) => {
                     if (brokerId) {
                         localStorage.setItem('brokerId', brokerId);
                         localStorage.setItem('brokerName', brokerName);
-
 
                         console.log('Verification - stored in localStorage:', {
                             brokerId: localStorage.getItem('brokerId'),
@@ -73,27 +124,26 @@ export const AuthProvider = ({ children }) => {
             } else {
                 console.log('Not authenticated, clearing broker data');
                 setBroker(null);
+                localStorage.removeItem('token');
                 localStorage.removeItem('brokerId');
                 localStorage.removeItem('brokerName');
-
             }
         } catch (error) {
             console.error('Session check error:', error);
             setBroker(null);
+            localStorage.removeItem('token');
             localStorage.removeItem('brokerId');
             localStorage.removeItem('brokerName');
-
         } finally {
             setLoading(false);
+            setSessionChecked(true);
         }
     };
 
     const login = async (email, password, rememberMe) => {
         try {
-            console.log('Login attempt - clearing localStorage');
-            // Clear all existing localStorage items before logging in
-            localStorage.clear();
-
+            console.log('Login attempt');
+            
             const response = await api.post('/auth/login', {
                 email,
                 password,
@@ -102,6 +152,14 @@ export const AuthProvider = ({ children }) => {
 
             console.log('Login response:', response.data);
 
+            // Extract token and store it
+            const token = response.data.token;
+            if (token) {
+                localStorage.setItem('token', token);
+            } else {
+                console.warn('No token received in login response');
+            }
+
             // Extract broker data from response
             const brokerData = response.data.broker || response.data.user || response.data;
             console.log('Extracted broker data:', brokerData);
@@ -109,19 +167,12 @@ export const AuthProvider = ({ children }) => {
             // Set broker in state
             setBroker(brokerData);
 
-            // Store broker info in localStorage - handle different possible structures
+            // Store broker information in localStorage
             if (brokerData) {
                 // Try to get ID from different possible properties
-                const brokerId = brokerData.brokerId || brokerData._id || brokerData.id || brokerData.broker_id;
+                const brokerId = brokerData.id || brokerData._id || brokerData.broker_id || response.data.id;
                 const brokerName = brokerData.name || brokerData.fullName || brokerData.username || '';
                 const brokerEmail = brokerData.email || '';
-                
-                // Store the token
-                const token = response.data.token;
-                if (token) {
-                    localStorage.setItem('token', token);
-                    console.log('Token stored in localStorage');
-                }
 
                 console.log('Extracted broker info:', { brokerId, brokerName, brokerEmail });
 
@@ -159,13 +210,21 @@ export const AuthProvider = ({ children }) => {
             setBroker(null);
 
             // Clear all localStorage items on logout
-            localStorage.clear();
+            localStorage.removeItem('token');
+            localStorage.removeItem('brokerId');
+            localStorage.removeItem('brokerName');
 
             return { success: true };
         } catch (error) {
             console.error('Logout error:', error);
+            // Even if the server-side logout fails, we still want to clear local storage
+            localStorage.removeItem('token');
+            localStorage.removeItem('brokerId');
+            localStorage.removeItem('brokerName');
+            setBroker(null);
+            
             return {
-                success: false,
+                success: true, // Return success anyway since we've cleared local state
                 error: error.response?.data?.message || 'An error occurred during logout'
             };
         }
@@ -228,6 +287,7 @@ export const AuthProvider = ({ children }) => {
     const value = {
         broker,
         loading,
+        sessionChecked,
         login,
         logout,
         loginWithGoogle: () => {
@@ -237,7 +297,8 @@ export const AuthProvider = ({ children }) => {
         checkSession,
         forgotPassword,
         verifyResetToken,
-        resetPassword
+        resetPassword,
+        isAuthenticated: !!broker
     };
 
     return (

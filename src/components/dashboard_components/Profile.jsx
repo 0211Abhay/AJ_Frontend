@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import '../../style/Profile.css';
 
-// Use the same axios instance as in AuthContext
+// Create axios instance with default config and interceptors
 const api = axios.create({
     baseURL: 'http://localhost:5001/api',
     withCredentials: true,
@@ -12,8 +12,22 @@ const api = axios.create({
     }
 });
 
+// Add request interceptor to include auth token in all requests
+api.interceptors.request.use(
+    (config) => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`;
+        }
+        return config;
+    },
+    (error) => {
+        return Promise.reject(error);
+    }
+);
+
 const Profile = () => {
-    const { broker, checkSession } = useAuth();
+    const { broker, checkSession, loading: authLoading, sessionChecked, logout } = useAuth();
     const [isEditing, setIsEditing] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -23,6 +37,7 @@ const Profile = () => {
         email: '',
         phone: ''
     });
+    const [originalEmail, setOriginalEmail] = useState('');
 
     // Clear messages after 5 seconds
     useEffect(() => {
@@ -43,6 +58,29 @@ const Profile = () => {
                 email: broker.email || '',
                 phone: broker.phone || ''
             });
+            setOriginalEmail(broker.email || '');
+        }
+    }, [broker]);
+
+    // Check for temporary profile data on component mount
+    useEffect(() => {
+        const tempProfileData = localStorage.getItem('tempProfileData');
+        if (tempProfileData) {
+            try {
+                const parsedData = JSON.parse(tempProfileData);
+                // Only use this data if we have a broker and the emails match
+                if (broker && broker.email === parsedData.email) {
+                    setFormData(prevData => ({
+                        ...prevData,
+                        phone: parsedData.phone || prevData.phone
+                    }));
+                }
+                // Clear the temporary data
+                localStorage.removeItem('tempProfileData');
+            } catch (e) {
+                console.error('Error parsing temporary profile data:', e);
+                localStorage.removeItem('tempProfileData');
+            }
         }
     }, [broker]);
 
@@ -68,18 +106,59 @@ const Profile = () => {
             setError('');
             setSuccess('');
             
+            // Validate form data
+            if (!formData.name.trim()) {
+                throw new Error('Name is required');
+            }
+            
+            if (!formData.email.trim()) {
+                throw new Error('Email is required');
+            }
+            
+            // Email validation regex
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(formData.email)) {
+                throw new Error('Please enter a valid email address');
+            }
+            
+            // Check if email is being changed
+            const isEmailChanged = formData.email !== originalEmail;
+            
             const response = await api.put('/auth/profile', formData);
             
             if (response.data.success) {
                 setSuccess('Profile updated successfully!');
-                // Refresh broker data in context
-                checkSession();
-                setIsEditing(false);
+                
+                // If email was changed, we need to handle re-authentication
+                if (isEmailChanged) {
+                    // Show a message to the user
+                    setSuccess('Email updated successfully! You will be redirected to login with your new email.');
+                    
+                    // Store the updated profile data in localStorage to preserve it across the login
+                    localStorage.setItem('tempProfileData', JSON.stringify({
+                        name: formData.name,
+                        email: formData.email,
+                        phone: formData.phone
+                    }));
+                    
+                    // Wait a moment to show the success message before logging out
+                    setTimeout(async () => {
+                        await logout();
+                        window.location.href = '/login';
+                    }, 2000);
+                } else {
+                    // If email wasn't changed, just refresh the broker data
+                    await checkSession();
+                    setIsEditing(false);
+                }
+            } else {
+                throw new Error(response.data.message || 'Failed to update profile');
             }
         } catch (error) {
             console.error('Error updating profile:', error);
             setError(
                 error.response?.data?.message || 
+                error.message ||
                 'Failed to update profile. Please make sure the server is running.'
             );
         } finally {
@@ -87,21 +166,57 @@ const Profile = () => {
         }
     };
 
-    if (!broker) {
+    const handleCancel = () => {
+        // Reset form data to original broker data
+        if (broker) {
+            setFormData({
+                name: broker.name || '',
+                email: broker.email || '',
+                phone: broker.phone || ''
+            });
+        }
+        setIsEditing(false);
+        setError('');
+    };
+
+    if (authLoading || !sessionChecked) {
         return <div className="profile-loading">Loading profile...</div>;
+    }
+
+    if (!broker) {
+        return <div className="profile-error">Please log in to view your profile.</div>;
     }
 
     return (
         <div className="profile-container">
             <div className="profile-header">
                 <h2>Broker Profile</h2>
-                <button 
-                    className={`edit-button ${isEditing ? 'save-mode' : 'edit-mode'}`}
-                    onClick={handleEditToggle}
-                    disabled={isLoading}
-                >
-                    {isLoading ? 'Saving...' : isEditing ? 'Save Changes' : 'Edit Profile'}
-                </button>
+                {isEditing ? (
+                    <div className="button-group">
+                        <button 
+                            className="cancel-button"
+                            onClick={handleCancel}
+                            disabled={isLoading}
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            className="save-button"
+                            onClick={handleSaveProfile}
+                            disabled={isLoading}
+                        >
+                            {isLoading ? 'Saving...' : 'Save Changes'}
+                        </button>
+                    </div>
+                ) : (
+                    <button 
+                        className="edit-button"
+                        onClick={() => setIsEditing(true)}
+                        disabled={isLoading}
+                    >
+                        Edit Profile
+                    </button>
+                )}
             </div>
 
             {error && <div className="error-message">{error}</div>}
@@ -112,6 +227,9 @@ const Profile = () => {
                     {/* Placeholder for profile image */}
                     <div className="avatar-placeholder">
                         {broker.name ? broker.name.charAt(0).toUpperCase() : 'B'}
+                    </div>
+                    <div className="broker-id">
+                        <span>Broker ID: {broker.brokerId || broker.id}</span>
                     </div>
                 </div>
 
@@ -125,6 +243,7 @@ const Profile = () => {
                                 value={formData.name} 
                                 onChange={handleInputChange} 
                                 disabled={isLoading}
+                                required
                             />
                         ) : (
                             <span>{broker.name}</span>
@@ -140,6 +259,7 @@ const Profile = () => {
                                 value={formData.email} 
                                 onChange={handleInputChange} 
                                 disabled={isLoading}
+                                required
                             />
                         ) : (
                             <span>{broker.email}</span>
@@ -152,9 +272,10 @@ const Profile = () => {
                             <input 
                                 type="tel" 
                                 name="phone" 
-                                value={formData.phone} 
+                                value={formData.phone || ''} 
                                 onChange={handleInputChange} 
                                 disabled={isLoading}
+                                placeholder="Enter phone number"
                             />
                         ) : (
                             <span>{broker.phone || 'Not provided'}</span>

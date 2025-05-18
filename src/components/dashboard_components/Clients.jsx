@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FaFileExport } from 'react-icons/fa';
 import ExportClients from '../ExportClients';
+import { useAuth } from '../../context/AuthContext';
 
 import "../../style/Clients.css"
 
@@ -32,10 +33,15 @@ const Client = () => {
         address: ''
     });
 
-    useEffect(() => {
-        fetchClients();
-    }, []);
+    // Get auth context
+    const { broker, loading: authLoading, sessionChecked } = useAuth();
 
+    useEffect(() => {
+        // Only fetch clients when auth is ready and not loading
+        if (sessionChecked && !authLoading) {
+            fetchClients();
+        }
+    }, [sessionChecked, authLoading]);
 
     const fetchClientDetails = async (clientId) => {
         setLoadingDetails(true);
@@ -160,9 +166,15 @@ const Client = () => {
     const fetchClients = async () => {
         setLoading(true);
         try {
-            // Get broker ID directly from localStorage
-            const brokerId = localStorage.getItem('brokerId');
-            console.log('Using broker ID from localStorage:', brokerId);
+            // Try to get broker ID from context first, then localStorage as fallback
+            let brokerId = broker?.brokerId || broker?.id;
+            
+            // If not in context, try localStorage
+            if (!brokerId) {
+                brokerId = localStorage.getItem('brokerId');
+            }
+            
+            console.log('Using broker ID:', brokerId);
 
             // Ensure broker ID is available
             if (!brokerId) {
@@ -202,8 +214,14 @@ const Client = () => {
         }
 
         try {
-            // Get broker ID directly from localStorage - use the same method as fetchClients
-            const brokerId = localStorage.getItem('brokerId');
+            // Try to get broker ID from context first, then localStorage as fallback
+            let brokerId = broker?.brokerId || broker?.id;
+            
+            // If not in context, try localStorage
+            if (!brokerId) {
+                brokerId = localStorage.getItem('brokerId');
+            }
+            
             console.log('Using broker ID for client creation:', brokerId);
 
             // Ensure broker ID is available
@@ -259,10 +277,16 @@ const Client = () => {
         }
     
         try {
-            // Get broker ID directly from localStorage
-            const brokerId = localStorage.getItem('brokerId');
+            // Try to get broker ID from context first, then localStorage as fallback
+            let brokerId = broker?.brokerId || broker?.id;
+            
+            // If not in context, try localStorage
+            if (!brokerId) {
+                brokerId = localStorage.getItem('brokerId');
+            }
+            
             console.log('Using broker ID for client update:', brokerId);
-    
+
             // Ensure broker ID is available
             if (!brokerId) {
                 throw new Error('Broker ID not found. Please log in again.');
@@ -694,7 +718,7 @@ const Client = () => {
 
         const months = [];
 
-        for (let i = 0; i <totalMonths; i++) {
+        for (let i = 0; i < totalMonths; i++) {
             // Create payment date for this month - exact same logic as Rental.jsx
             const paymentDate = new Date(startDate);
             paymentDate.setMonth(startDate.getMonth() + i);
