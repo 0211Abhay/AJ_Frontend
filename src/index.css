@@ -1,0 +1,98 @@
+/* Import global responsive styles */
+@import url('./style/responsive.css');
+
+:root {
+  --primary-blue: #0096FF;
+  --secondary-blue: #33c3f0;
+  --text-dark: #333333;
+  --background-light: #FFFFFF;
+  --accent-light: #F8F9FA;
+  
+  /* Common colors for consistency */
+  --primary-color: #007FFF;
+  --secondary-color: #8338ec;
+  --success-color: #38b000;
+  --warning-color: #ffbe0b;
+  --danger-color: #fb5607;
+  --light-color: #f8f9fa;
+  --dark-color: #212529;
+  --gray-color: #6c757d;
+  --border-color: #dee2e6;
+  
+  /* System variables */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.15);
+  --transition-speed: 0.3s;
+  --border-radius-sm: 4px;
+  --border-radius: 8px;
+  --border-radius-lg: 12px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.6;
+  color: var(--text-dark);
+  background-color: var(--accent-light);
+  margin-top: -3.5rem;
+  overflow-x: hidden;
+  font-size: 16px;
+}
+
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content {
+  flex: 1;
+  padding: 20px 10px;
+  background: linear-gradient(109.6deg, rgb(255, 255, 255) 11.2%, rgba(244, 248, 252, 1) 91.1%);
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+@media (max-width: 768px) {
+  .main-content {
+    padding: 15px 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-content {
+    padding: 10px 5px;
+  }
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background-color: var(--primary-blue);
+  color: white;
+}
