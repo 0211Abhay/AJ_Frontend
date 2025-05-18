@@ -45,39 +45,52 @@ const Client = () => {
 
     const fetchClientDetails = async (clientId) => {
         setLoadingDetails(true);
+        setErrorDetails(null);
         try {
             console.log('Fetching client details for client ID:', clientId);
-
-            // Fetch schedules
-            const schedulesRes = await fetch(`http://localhost:5001/api/schedule/client/${clientId}`);
-            if (!schedulesRes.ok) {
-                const errorData = await schedulesRes.json();
-                throw new Error(errorData.details || 'Failed to fetch schedules');
+            
+            // Get the authentication token
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw new Error('Authentication token not found. Please log in again.');
             }
-            const schedulesData = await schedulesRes.json();
-            console.log('Fetched schedules:', schedulesData);
+            
+            const authHeader = { 'Authorization': `Bearer ${token}` };
 
-            setClientSchedules(schedulesData);
-
-            // Fetch property for the first schedule
-            if (schedulesData.length > 0 && schedulesData[0].property_id) {
-                const propertyId = schedulesData[0].property_id;
-                console.log('Fetching property with ID:', propertyId);
-
-                const propertyRes = await fetch(`http://localhost:5001/api/property/getOneProperty/${propertyId}`);
-                if (!propertyRes.ok) {
-                    const errorData = await propertyRes.json();
-                    throw new Error(errorData.details || 'Failed to fetch property');
-                }
-                const propertyData = await propertyRes.json();
-                console.log('Fetched property data:', propertyData);
-            } else {
-                console.log('No schedules or no property_id found.');
-            }
-
-            // Fetch rental information for the client
+            // Fetch schedules with authentication
             try {
-                const rentalRes = await axios.get(`http://localhost:5001/api/rental/getRentalsByClient/${clientId}`);
+                const schedulesRes = await axios.get(`http://localhost:5001/api/schedule/client/${clientId}`, {
+                    headers: authHeader
+                });
+                
+                console.log('Fetched schedules:', schedulesRes.data);
+                setClientSchedules(schedulesRes.data || []);
+                
+                // Fetch property for the first schedule
+                if (schedulesRes.data && schedulesRes.data.length > 0 && schedulesRes.data[0].property_id) {
+                    const propertyId = schedulesRes.data[0].property_id;
+                    console.log('Fetching property with ID:', propertyId);
+
+                    const propertyRes = await axios.get(`http://localhost:5001/api/property/getOneProperty/${propertyId}`, {
+                        headers: authHeader
+                    });
+                    
+                    console.log('Fetched property data:', propertyRes.data);
+                } else {
+                    console.log('No schedules or no property_id found.');
+                }
+            } catch (scheduleError) {
+                console.error('Error fetching schedules:', scheduleError);
+                // Don't throw here, continue with other data fetching
+                setClientSchedules([]);
+            }
+
+            // Fetch rental information for the client with authentication
+            try {
+                const rentalRes = await axios.get(`http://localhost:5001/api/rental/getRentalsByClient/${clientId}`, {
+                    headers: authHeader
+                });
+                
                 if (rentalRes.data && rentalRes.data.rentals) {
                     console.log('Fetched rentals:', rentalRes.data.rentals);
 
@@ -87,58 +100,50 @@ const Client = () => {
                         const property = rental.property ? rental.property.name : 'Unknown Property';
 
                         return {
-                            id: rental.rental_id,
-                            property: property,
-                            property_id: rental.property_id,
-                            client_id: rental.client_id,
-                            start_date: rental.start_date,
-                            end_date: rental.end_date,
-                            amount: parseFloat(rental.rent_amount),
-                            status: rental.status,
-                            notes: rental.notes || ''
+                            ...rental,
+                            id: rental.rental_id || rental.id,
+                            propertyName: property,
+                            formattedStartDate: new Date(rental.start_date).toLocaleDateString(),
+                            formattedEndDate: new Date(rental.end_date).toLocaleDateString(),
+                            formattedAmount: `$${rental.monthly_rent || rental.rent_amount}`
                         };
                     });
 
                     setClientRentals(formattedRentals);
 
-                    // Fetch paid payments for these rentals filtered by broker ID
-                    try {
-                        // Get current broker ID from localStorage
-                        const brokerId = localStorage.getItem('brokerId');
-                        if (!brokerId) {
-                            console.error('No broker ID found in localStorage for payments');
+                    // Also fetch payment information for these rentals
+                    if (formattedRentals.length > 0) {
+                        const rentalIds = formattedRentals.map(r => r.id);
+                        try {
+                            // Fetch all payments for all rentals in one request if possible
+                            const paymentsPromises = rentalIds.map(rentalId => 
+                                axios.get(`http://localhost:5001/api/rental/payments/${rentalId}`, {
+                                    headers: authHeader
+                                })
+                            );
+                            
+                            const paymentsResponses = await Promise.all(paymentsPromises);
+                            const allPayments = paymentsResponses.flatMap(res => res.data || []);
+                            console.log('Fetched payments for rentals:', allPayments);
+                            
+                            setPaidPayments(allPayments);
+                        } catch (paymentError) {
+                            console.error('Error fetching rental payments:', paymentError);
                             setPaidPayments([]);
-                            return;
                         }
-                        
-                        // Use the new endpoint with broker ID parameter
-                        const paidPaymentsResponse = await axios.get(`http://localhost:5001/api/payment/getAllPaidPayments/${brokerId}`);
-                        const fetchedPaidPayments = paidPaymentsResponse.data?.payments || [];
-
-                        // Filter to get only payments relevant to this client's rentals
-                        const clientRentalIds = formattedRentals.map(r => r.id);
-                        const clientPaidPayments = fetchedPaidPayments.filter(payment =>
-                            clientRentalIds.includes(payment.rental_id)
-                        );
-
-                        setPaidPayments(clientPaidPayments);
-                        console.log('Filtered paid payments for client rentals:', clientPaidPayments);
-                    } catch (paymentError) {
-                        console.error('Error fetching paid payments:', paymentError);
-                        setPaidPayments([]);
                     }
                 } else {
-                    console.log('No rentals found for client:', clientId);
                     setClientRentals([]);
                 }
             } catch (rentalError) {
-                console.error('Error fetching client rentals:', rentalError);
+                console.error('Error fetching rental information:', rentalError);
                 setClientRentals([]);
             }
 
         } catch (error) {
             console.error('Error fetching client details:', error);
-            setErrorDetails(error.message);
+            setErrorDetails(error.response?.data?.message || error.message || 'Failed to fetch client details');
+            throw error; // Re-throw to be caught by the calling function
         } finally {
             setLoadingDetails(false);
         }
@@ -146,21 +151,53 @@ const Client = () => {
 
 
     const handleViewDetails = async (client) => {
-        setSelectedClient(client);
-        setIsProfileModalOpen(true);
-        await fetchClientDetails(client.id);
+        try {
+            // Reset any previous errors
+            setErrorDetails(null);
+            setLoadingDetails(true);
+            
+            // Set the selected client and open the modal
+            setSelectedClient(client);
+            setIsProfileModalOpen(true);
+            
+            // Check if we have a valid client ID
+            if (!client || !client.id) {
+                throw new Error('Invalid client data: Missing client ID');
+            }
+            
+            console.log('Viewing details for client:', client.name, 'ID:', client.id);
+            
+            // Fetch client details with authentication
+            await fetchClientDetails(client.id);
+        } catch (error) {
+            console.error('Error in handleViewDetails:', error);
+            setErrorDetails(error.message || 'Failed to load client details');
+        } finally {
+            setLoadingDetails(false);
+        }
     };
     // Helper function to process client data from API response
     const processClientData = (data) => {
         console.log('Processing client data:', data);
-        setClients(data.map(client => ({
-            id: client.client_id,
-            name: client.name,
-            email: client.email,
-            phone: client.phone,
-            address: client.address || '',
-            joinDate: client.createdAt || client.created_at || null
-        })));
+        setClients(data.map(client => {
+            // Extract client ID from various possible properties
+            const clientId = client.client_id || client.id || client.clientId;
+            
+            console.log('Extracted client ID:', clientId, 'from client:', client);
+            
+            if (!clientId) {
+                console.warn('No client ID found for client:', client);
+            }
+            
+            return {
+                id: clientId,
+                name: client.name,
+                email: client.email,
+                phone: client.phone,
+                address: client.address || '',
+                joinDate: client.createdAt || client.created_at || null
+            };
+        }));
     };
 
     const fetchClients = async () => {
@@ -277,6 +314,13 @@ const Client = () => {
         }
     
         try {
+            // Validate client ID
+            if (!currentClient.id) {
+                throw new Error('Client ID is missing. Cannot update client.');
+            }
+            
+            console.log('Updating client with ID:', currentClient.id);
+            
             // Try to get broker ID from context first, then localStorage as fallback
             let brokerId = broker?.brokerId || broker?.id;
             
@@ -294,6 +338,9 @@ const Client = () => {
             
             // Get the authentication token
             const token = localStorage.getItem('token');
+            if (!token) {
+                throw new Error('Authentication token not found. Please log in again.');
+            }
             
             // Use the correct endpoint and data structure
             const response = await axios.put(`http://localhost:5001/api/clients/${currentClient.id}`, {
@@ -307,7 +354,7 @@ const Client = () => {
             }, {
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': token ? `Bearer ${token}` : ''
+                    'Authorization': `Bearer ${token}`
                 }
             });
     
@@ -336,19 +383,28 @@ const Client = () => {
     const deleteClient = async (id) => {
         if (window.confirm('Are you sure you want to delete this client?')) {
             try {
-                const response = await fetch(`http://localhost:5001/api/client/deleteClient/${id}`, {
-                    method: 'DELETE'
+                // Get the authentication token
+                const token = localStorage.getItem('token');
+                
+                // Use the correct API endpoint that matches the backend controller
+                const response = await axios.delete(`http://localhost:5001/api/clients/${id}`, {
+                    headers: {
+                        'Authorization': token ? `Bearer ${token}` : ''
+                    }
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || "Failed to delete client");
-                }
-
+                console.log('Client deleted successfully:', response.data);
                 await fetchClients();
             } catch (error) {
                 console.error('Error deleting client:', error);
-                setError(error.message);
+                // Improved error handling
+                if (error.response) {
+                    setError(error.response.data?.message || `Error: ${error.response.status}`);
+                } else if (error.request) {
+                    setError('No response from server. Please try again.');
+                } else {
+                    setError(error.message || 'Error deleting client');
+                }
             }
         }
     };
@@ -621,10 +677,10 @@ const Client = () => {
                                             </div>
                                             {clientRentals.map(rental => (
                                                 <div key={rental.id} className="rental-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', alignItems: 'center' }}>
-                                                    <span>{rental.property}</span>
-                                                    <span>{new Date(rental.start_date).toLocaleDateString()}</span>
-                                                    <span>{new Date(rental.end_date).toLocaleDateString()}</span>
-                                                    <span>${rental.amount.toFixed(2)}</span>
+                                                    <span>{rental.propertyName}</span>
+                                                    <span>{rental.formattedStartDate}</span>
+                                                    <span>{rental.formattedEndDate}</span>
+                                                    <span>{rental.formattedAmount}</span>
                                                     <button
                                                         className="view-details-btn"
                                                         onClick={() => {
@@ -658,28 +714,28 @@ const Client = () => {
                             &times;
                         </button>
 
-                        <h2 className="modal-title">Rental Details: {selectedRental.property}</h2>
+                        <h2 className="modal-title">Rental Details: {selectedRental.propertyName}</h2>
 
                         <div className="rental-info-section">
                             <div className="detail-columns">
                                 <div className="detail-column">
                                     <div className="info-item">
                                         <label>Property:</label>
-                                        <p>{selectedRental.property}</p>
+                                        <p>{selectedRental.propertyName}</p>
                                     </div>
                                     <div className="info-item">
                                         <label>Start Date:</label>
-                                        <p>{new Date(selectedRental.start_date).toLocaleDateString()}</p>
+                                        <p>{selectedRental.formattedStartDate}</p>
                                     </div>
                                     <div className="info-item">
                                         <label>End Date:</label>
-                                        <p>{new Date(selectedRental.end_date).toLocaleDateString()}</p>
+                                        <p>{selectedRental.formattedEndDate}</p>
                                     </div>
                                 </div>
                                 <div className="detail-column">
                                     <div className="info-item">
                                         <label>Monthly Rent:</label>
-                                        <p>${selectedRental.amount.toFixed(2)}</p>
+                                        <p>{selectedRental.formattedAmount}</p>
                                     </div>
                                     <div className="info-item">
                                         <label>Status:</label>
