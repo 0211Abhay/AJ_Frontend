@@ -172,47 +172,75 @@ const AddPropertyModel = ({ isOpen, onClose, propertyToEdit = null }) => {
         }
 
         try {
-            // Create a new object with the property data
+            // Create a new object with the property data formatted for Spring Boot backend
             const propertyPayload = {
-                broker_id: localStorage.getItem('brokerId'), // Placeholder broker ID
+                // Create a broker object with the ID
+                broker: {
+                    brokerId: parseInt(localStorage.getItem('brokerId'))
+                },
                 name: propertyData.name,
                 location: propertyData.location,
-                price: propertyData.price,
-                property_for: propertyData.property_for,
-                property_type: propertyData.property_type,
-                bedrooms: propertyData.bedrooms || null,
-                bathrooms: propertyData.bathrooms || null,
-                area: propertyData.area || null,
-                contact_agent: propertyData.contact_agent || null,
-                year_built: propertyData.year_built || null,
+                price: parseFloat(propertyData.price),
+                propertyFor: propertyData.property_for,
+                propertyType: propertyData.property_type,
+                bedrooms: propertyData.bedrooms ? parseInt(propertyData.bedrooms) : null,
+                bathrooms: propertyData.bathrooms ? parseInt(propertyData.bathrooms) : null,
+                area: propertyData.area ? parseInt(propertyData.area) : null,
+                contactAgent: propertyData.contact_agent || null,
+                yearBuilt: propertyData.year_built ? parseInt(propertyData.year_built) : null,
                 status: propertyData.status,
                 description: propertyData.description || null,
-                amenities: propertyData.amenities
+                amenities: Array.isArray(propertyData.amenities) ? JSON.stringify(propertyData.amenities) : null
             };
 
             console.log(`${isEditMode ? 'Updating' : 'Sending'} property data:`, propertyPayload);
 
-            let url = 'http://localhost:5001/api/property/createProperty';
+            // Update URLs to match Spring Boot endpoints
+            let url = 'http://localhost:5001/api/properties';
             let method = 'POST';
 
             if (isEditMode && propertyToEdit) {
-                url = `http://localhost:5001/api/property/updateProperty/${propertyToEdit.property_id}`;
+                url = `http://localhost:5001/api/properties/${propertyToEdit.property_id}`;
                 method = 'PUT';
             }
 
+            // Get authentication token from localStorage
+            const token = localStorage.getItem('token');
+            
+            // Prepare headers with authentication token
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            
             const response = await fetch(url, {
                 method: method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: headers,
                 body: JSON.stringify(propertyPayload)
             });
 
-            const responseData = await response.json();
-
+            // Check if response is ok before trying to parse JSON
             if (!response.ok) {
-                throw new Error(responseData.error || `Failed to ${isEditMode ? 'update' : 'add'} property`);
+                // For 401 errors, provide a more specific message
+                if (response.status === 401) {
+                    throw new Error('Authentication failed. Please log in again.');
+                }
+                
+                // Try to parse error message from response if possible
+                try {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || errorData.message || `Failed to ${isEditMode ? 'update' : 'add'} property`);
+                } catch (parseError) {
+                    // If we can't parse the response, use a generic error message
+                    throw new Error(`Failed to ${isEditMode ? 'update' : 'add'} property. Server returned ${response.status}`);
+                }
             }
+            
+            // Parse the response data
+            const responseData = await response.json();
 
             console.log(`Property ${isEditMode ? 'updated' : 'added'} successfully:`, responseData);
             setSuccess(`Property ${isEditMode ? 'updated' : 'added'} successfully!`);

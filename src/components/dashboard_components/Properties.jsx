@@ -55,9 +55,29 @@ const Properties = () => {
             extractFilterOptions(data.properties);
         } else if (Array.isArray(data)) {
             // Handle case where response is an array directly
-            setProperties(data);
+            // Map backend property fields to match frontend expected structure
+            const mappedProperties = data.map(property => ({
+                property_id: property.propertyId,
+                name: property.name,
+                location: property.location,
+                price: property.price,
+                property_for: property.propertyFor,
+                property_type: property.propertyType,
+                bedrooms: property.bedrooms,
+                bathrooms: property.bathrooms,
+                area: property.area,
+                contact_agent: property.contactAgent,
+                year_built: property.yearBuilt,
+                status: property.status,
+                description: property.description,
+                amenities: property.amenities,
+                created_at: property.createdAt,
+                broker_id: property.broker?.brokerId
+            }));
+            
+            setProperties(mappedProperties);
             // Extract unique filter options from properties
-            extractFilterOptions(data);
+            extractFilterOptions(mappedProperties);
         } else {
             console.error('Unexpected data structure:', data);
             setProperties([]);
@@ -69,14 +89,28 @@ const Properties = () => {
         try {
             setLoading(true);
             
-            // Get broker ID directly from localStorage
+            // Get broker ID and authentication token from localStorage
             const brokerId = localStorage.getItem('brokerId');
+            const token = localStorage.getItem('token');
             console.log('Using broker ID for properties:', brokerId);
+            
+            // Prepare headers with authentication token
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
             
             // Ensure broker ID is available
             if (!brokerId) {
                 console.warn('No broker ID found, falling back to all properties');
-                const fallbackResponse = await fetch('http://localhost:5001/api/property/getAllProperty');
+                // Use the Spring Boot API endpoint for getting all properties
+                const fallbackResponse = await fetch('http://localhost:5001/api/properties', {
+                    headers: headers
+                });
+                
                 if (!fallbackResponse.ok) {
                     throw new Error('Failed to fetch properties');
                 }
@@ -86,8 +120,10 @@ const Properties = () => {
                 return;
             }
             
-            // Use the broker-specific endpoint with the broker ID
-            const response = await fetch(`http://localhost:5001/api/property/getPropertiesByBroker/${brokerId}`);
+            // Use the Spring Boot broker-specific endpoint with the broker ID
+            const response = await fetch(`http://localhost:5001/api/properties/broker/${brokerId}`, {
+                headers: headers
+            });
 
             if (!response.ok) {
                 throw new Error('Failed to fetch properties for this broker');
