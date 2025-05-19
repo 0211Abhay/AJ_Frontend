@@ -443,28 +443,73 @@ const Schedule = () => {
             if (!backendStatus) {
                 throw new Error(`Invalid status: ${newStatus}`);
             }
+            
+            let responseData = null;
+            let success = false;
+            
+            try {
+                // Use the status-specific endpoint
+                const response = await axios.put(`http://localhost:5001/api/schedules/${id}/status`, {
+                    status: backendStatus
+                }, {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    // This is important - we want to handle the response even if it's a 400
+                    validateStatus: function (status) {
+                        // Accept 200-299 status codes and also 400 since it contains the updated schedule
+                        return (status >= 200 && status < 300) || status === 400;
+                    }
+                });
+                
+                // Even if we get a 400, the response might contain the updated schedule
+                if (response.data && response.data.status === backendStatus) {
+                    console.log('Schedule updated successfully despite status code:', response.status);
+                    responseData = response.data;
+                    success = true;
+                } else {
+                    throw new Error('Failed to update schedule status');
+                }
+            } catch (axiosError) {
+                // If the error has response data and that data has the correct status,
+                // we can consider it a success despite the error
+                if (axiosError.response && 
+                    axiosError.response.data && 
+                    axiosError.response.data.status === backendStatus) {
+                    console.log('Schedule updated successfully despite error');
+                    responseData = axiosError.response.data;
+                    success = true;
+                } else {
+                    throw axiosError;
+                }
+            }
 
-            // Update status in the backend using Spring Boot endpoint
-            // Using PUT for the entire resource update as per REST standards
-            const response = await api.put(`/schedules/${id}`, {
-                status: backendStatus
-            });
+            if (success) {
+                console.log('Status update response:', responseData);
+                
+                // Show success message
+                alert(`Schedule status updated to ${newStatus}`);
+                
+                // Update local state with the correct ID field from the response
+                const scheduleId = responseData.scheduleId;
+                
+                // Update the visits state with the new status
+                setVisits(prevVisits =>
+                    prevVisits.map(visit =>
+                        visit.id === scheduleId || visit.id === id ? 
+                        { ...visit, status: newStatus, id: scheduleId } : visit
+                    )
+                );
 
-            console.log('Status update response:', response.data);
-
-            // Show success message
-            alert(`Schedule status updated to ${newStatus}`);
-
-            // Update local state
-            setVisits(prevVisits =>
-                prevVisits.map(visit =>
-                    visit.id === id ? { ...visit, status: newStatus } : visit
-                )
-            );
-
-            // If the selected visit is the one being updated, update it too
-            if (selectedVisit && selectedVisit.id === id) {
-                setSelectedVisit({ ...selectedVisit, status: newStatus });
+                // If the selected visit is the one being updated, update it too
+                if (selectedVisit && (selectedVisit.id === id || selectedVisit.id === scheduleId)) {
+                    setSelectedVisit({ ...selectedVisit, status: newStatus, id: scheduleId });
+                }
+                
+                // Force a re-render by triggering a state update
+                setFilterStatus(filterStatus);
+            } else {
+                throw new Error('Failed to update schedule status');
             }
 
             // Recalculate dashboard metrics
