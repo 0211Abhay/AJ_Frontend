@@ -3,8 +3,13 @@ import "../../style/Properties.css";
 import AddPropertyModel from './AddPropertyModel';
 import { FaFileExport, FaPlus } from 'react-icons/fa';
 import ExportProperties from '../ExportProperties';
+import axios from 'axios';
+import { useAuth } from '../../context/AuthContext';
 
 const Properties = () => {
+    // Get auth context for API calls
+    const { broker, api } = useAuth();
+
     // State management
     const [properties, setProperties] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -45,7 +50,8 @@ const Properties = () => {
     const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
     const [propertyToEdit, setPropertyToEdit] = useState(null);
     const [isExporting, setIsExporting] = useState(false);
-    
+    const [exportStatus, setExportStatus] = useState({ success: false, message: '', count: 0 });
+
     // Helper function to process property data from API response
     const processFetchedProperties = (data) => {
         // Check if data has the expected structure
@@ -74,7 +80,7 @@ const Properties = () => {
                 created_at: property.createdAt,
                 broker_id: property.broker?.brokerId
             }));
-            
+
             setProperties(mappedProperties);
             // Extract unique filter options from properties
             extractFilterOptions(mappedProperties);
@@ -89,49 +95,33 @@ const Properties = () => {
         try {
             setLoading(true);
             
-            // Get broker ID and authentication token from localStorage
-            const brokerId = localStorage.getItem('brokerId');
-            const token = localStorage.getItem('token');
+            // Get broker ID from context or localStorage
+            const brokerId = broker?.brokerId || localStorage.getItem('brokerId');
             console.log('Using broker ID for properties:', brokerId);
-            
-            // Prepare headers with authentication token
-            const headers = {
-                'Content-Type': 'application/json'
-            };
-            
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
             
             // Ensure broker ID is available
             if (!brokerId) {
                 console.warn('No broker ID found, falling back to all properties');
                 // Use the Spring Boot API endpoint for getting all properties
-                const fallbackResponse = await fetch('http://localhost:5001/api/properties', {
-                    headers: headers
-                });
-                
-                if (!fallbackResponse.ok) {
+                try {
+                    const fallbackResponse = await api.get('/properties');
+                    processFetchedProperties(fallbackResponse.data);
+                } catch (fallbackError) {
+                    console.error('Error fetching all properties:', fallbackError);
                     throw new Error('Failed to fetch properties');
                 }
-                
-                const fallbackData = await fallbackResponse.json();
-                processFetchedProperties(fallbackData);
                 return;
             }
-            
-            // Use the Spring Boot broker-specific endpoint with the broker ID
-            const response = await fetch(`http://localhost:5001/api/properties/broker/${brokerId}`, {
-                headers: headers
-            });
 
-            if (!response.ok) {
+            // Use the Spring Boot broker-specific endpoint with the broker ID
+            try {
+                const response = await api.get(`/properties/broker/${brokerId}`);
+                console.log('Fetched properties for broker ID', brokerId, ':', response.data);
+                processFetchedProperties(response.data);
+            } catch (error) {
+                console.error('Error fetching broker properties:', error);
                 throw new Error('Failed to fetch properties for this broker');
             }
-
-            const data = await response.json();
-            console.log('Fetched properties for broker ID', brokerId, ':', data);
-            processFetchedProperties(data);
         } catch (error) {
             console.error('Error fetching properties:', error);
             setError(error.message);
@@ -331,6 +321,23 @@ const Properties = () => {
         setIsViewingDetails(false);
     };
 
+    // Delete property handler
+    const handleDeleteProperty = async (propertyId) => {
+        if (window.confirm('Are you sure you want to delete this property?')) {
+            try {
+                // Use the Spring Boot API endpoint for deleting a property
+                await api.delete(`/properties/${propertyId}`);
+
+                // Remove the deleted property from the state
+                setProperties(properties.filter(p => p.property_id !== propertyId));
+                alert('Property deleted successfully');
+            } catch (error) {
+                console.error('Error deleting property:', error);
+                alert('Failed to delete property: ' + (error.response?.data?.message || error.message));
+            }
+        }
+    };
+
     // Show loading state
     if (loading) {
         return (
@@ -388,29 +395,77 @@ const Properties = () => {
                     <FaPlus /> Add Property
                 </button>
                 <button
-                    className="export-btn"
                     onClick={() => {
-                        // Get broker ID from localStorage
-                        const brokerId = localStorage.getItem('brokerId');
+                        // Get broker ID from localStorage or context
+                        const brokerId = broker?.brokerId || broker?.id || localStorage.getItem('brokerId');
                         if (!brokerId) {
-                            alert('Error: Broker ID not found. Please log in again.');
+                            setExportStatus({
+                                success: false,
+                                message: 'Broker ID not found. Please log in again.',
+                                count: 0
+                            });
                             return;
                         }
-                        
-                        // Activate export component
+
+                        // Reset previous export status and start new export
+                        setExportStatus({ success: false, message: 'Exporting properties...', count: 0 });
                         setIsExporting(true);
-                        setTimeout(() => setIsExporting(false), 3000); // Reset after 3 seconds
-                        
-                        // Show feedback to user
-                        alert('Exporting properties to Excel...');
                     }}
+                    className={`export-btn ${isExporting ? 'exporting' : ''}`}
+                    disabled={isExporting}
                     aria-label="Export Properties"
                 >
-                    <FaFileExport /> Export
+                    {isExporting ? (
+                        <>
+                            <span className="export-spinner"></span> Exporting...
+                        </>
+                    ) : (
+                        <>
+                            <FaFileExport /> Export
+                        </>
+                    )}
                 </button>
-                
+
+                {/* Export status message */}
+                {exportStatus.message && (
+                    <div className={`export-status ${exportStatus.success ? 'success' : 'error'}`}>
+                        {exportStatus.message}
+                        {exportStatus.success && exportStatus.count > 0 && (
+                            <span className="export-count">({exportStatus.count} properties exported)</span>
+                        )}
+                    </div>
+                )}
+
                 {/* Export component - only rendered when exporting is active */}
-                {isExporting && <ExportProperties brokerId={localStorage.getItem('brokerId')} />}
+                {isExporting && (
+                    <ExportProperties 
+                        brokerId={broker?.brokerId || broker?.id || localStorage.getItem('brokerId')} 
+                        onExportComplete={(count) => {
+                            setExportStatus({
+                                success: true,
+                                message: 'Export completed successfully!',
+                                count: count
+                            });
+                            setIsExporting(false);
+                            // Clear success message after 5 seconds
+                            setTimeout(() => {
+                                setExportStatus(prev => prev.success ? { success: false, message: '', count: 0 } : prev);
+                            }, 5000);
+                        }}
+                        onExportError={(errorMessage) => {
+                            setExportStatus({
+                                success: false,
+                                message: `Export failed: ${errorMessage}`,
+                                count: 0
+                            });
+                            setIsExporting(false);
+                            // Clear error message after 5 seconds
+                            setTimeout(() => {
+                                setExportStatus(prev => !prev.success ? { success: false, message: '', count: 0 } : prev);
+                            }, 5000);
+                        }}
+                    />
+                )}
             </div>
 
             <button

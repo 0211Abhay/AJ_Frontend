@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
+import { FaUser, FaEdit, FaSave, FaTimes, FaEnvelope, FaPhone, FaIdCard, FaExclamationCircle, FaCheckCircle } from 'react-icons/fa';
 import '../../style/Profile.css';
 
 // Create axios instance with default config and interceptors
@@ -197,15 +198,25 @@ const Profile = () => {
                             className="cancel-button"
                             onClick={handleCancel}
                             disabled={isLoading}
+                            aria-label="Cancel editing"
                         >
-                            Cancel
+                            <FaTimes style={{ marginRight: '8px' }} /> Cancel
                         </button>
                         <button 
                             className="save-button"
                             onClick={handleSaveProfile}
                             disabled={isLoading}
+                            aria-label="Save profile changes"
                         >
-                            {isLoading ? 'Saving...' : 'Save Changes'}
+                            {isLoading ? (
+                                <>
+                                    <span className="loading-spinner"></span> Saving...
+                                </>
+                            ) : (
+                                <>
+                                    <FaSave style={{ marginRight: '8px' }} /> Save Changes
+                                </>
+                            )}
                         </button>
                     </div>
                 ) : (
@@ -213,29 +224,40 @@ const Profile = () => {
                         className="edit-button"
                         onClick={() => setIsEditing(true)}
                         disabled={isLoading}
+                        aria-label="Edit profile"
                     >
-                        Edit Profile
+                        <FaEdit style={{ marginRight: '8px' }} /> Edit Profile
                     </button>
                 )}
             </div>
 
-            {error && <div className="error-message">{error}</div>}
-            {success && <div className="success-message">{success}</div>}
+            {error && (
+                <div className="error-message">
+                    <FaExclamationCircle style={{ marginRight: '10px' }} /> {error}
+                </div>
+            )}
+            {success && (
+                <div className="success-message">
+                    <FaCheckCircle style={{ marginRight: '10px' }} /> {success}
+                </div>
+            )}
 
             <div className="profile-content">
                 <div className="profile-avatar">
-                    {/* Placeholder for profile image */}
                     <div className="avatar-placeholder">
                         {broker.name ? broker.name.charAt(0).toUpperCase() : 'B'}
                     </div>
                     <div className="broker-id">
+                        <FaIdCard style={{ marginRight: '8px' }} />
                         <span>Broker ID: {broker.brokerId || broker.id}</span>
                     </div>
                 </div>
 
                 <div className="profile-details">
                     <div className="profile-field">
-                        <label>Name:</label>
+                        <label>
+                            <FaUser style={{ marginRight: '8px', color: '#4a90e2' }} /> Name:
+                        </label>
                         {isEditing ? (
                             <input 
                                 type="text" 
@@ -244,6 +266,8 @@ const Profile = () => {
                                 onChange={handleInputChange} 
                                 disabled={isLoading}
                                 required
+                                placeholder="Enter your full name"
+                                autoComplete="name"
                             />
                         ) : (
                             <span>{broker.name}</span>
@@ -251,7 +275,9 @@ const Profile = () => {
                     </div>
 
                     <div className="profile-field">
-                        <label>Email:</label>
+                        <label>
+                            <FaEnvelope style={{ marginRight: '8px', color: '#4a90e2' }} /> Email:
+                        </label>
                         {isEditing ? (
                             <input 
                                 type="email" 
@@ -260,6 +286,8 @@ const Profile = () => {
                                 onChange={handleInputChange} 
                                 disabled={isLoading}
                                 required
+                                placeholder="Enter your email address"
+                                autoComplete="email"
                             />
                         ) : (
                             <span>{broker.email}</span>
@@ -267,7 +295,9 @@ const Profile = () => {
                     </div>
 
                     <div className="profile-field">
-                        <label>Phone:</label>
+                        <label>
+                            <FaPhone style={{ marginRight: '8px', color: '#4a90e2' }} /> Phone:
+                        </label>
                         {isEditing ? (
                             <input 
                                 type="tel" 
@@ -275,7 +305,8 @@ const Profile = () => {
                                 value={formData.phone || ''} 
                                 onChange={handleInputChange} 
                                 disabled={isLoading}
-                                placeholder="Enter phone number"
+                                placeholder="Enter your phone number"
+                                autoComplete="tel"
                             />
                         ) : (
                             <span>{broker.phone || 'Not provided'}</span>

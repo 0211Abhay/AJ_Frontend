@@ -455,10 +455,94 @@
     outline: none;
 }
 
-.form-buttons {
+.client-actions {
     display: flex;
     gap: 10px;
-    margin-top: 20px;
+    margin-bottom: 20px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Export functionality styles */
+.export-btn {
+    background: linear-gradient(135deg, #4CAF50, #2E7D32);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius);
+    padding: 10px 20px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.export-btn:hover {
+    background: linear-gradient(135deg, #43A047, #2E7D32);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.export-btn.exporting {
+    background: linear-gradient(135deg, #757575, #616161);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.export-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.export-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.export-status {
+    margin-left: 10px;
+    padding: 8px 12px;
+    border-radius: var(--border-radius);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.export-status.success {
+    background-color: rgba(76, 175, 80, 0.1);
+    color: #2E7D32;
+    border-left: 3px solid #2E7D32;
+}
+
+.export-status.error {
+    background-color: rgba(244, 67, 54, 0.1);
+    color: #D32F2F;
+    border-left: 3px solid #D32F2F;
+}
+
+.export-count {
+    font-weight: 600;
+    margin-left: 4px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 .submit-btn {

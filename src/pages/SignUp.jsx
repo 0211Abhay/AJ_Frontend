@@ -14,7 +14,7 @@ const SignUp = () => {
     const [confirmPassword, setConfirmPassword] = useState("");
     const [error, setError] = useState(null);
     const navigate = useNavigate();
-    const { loginWithGoogle } = useAuth();  
+    const { loginWithGoogle } = useAuth();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -115,15 +115,15 @@ const SignUp = () => {
 
                 </form>
                 <div className='google-login-div'>
-                    <GoogleButton 
-                      className='google-button' 
-                      style={{ width: '350px', borderRadius: '0px' }}
-                      onClick={() => {
-                        setError(null);
-                        loginWithGoogle();
-                      }}
+                    <GoogleButton
+                        className='google-button'
+                        style={{ width: '350px', borderRadius: '0px' }}
+                        onClick={() => {
+                            setError(null);
+                            loginWithGoogle();
+                        }}
                     />
-                    
+
                 </div>
                 <div className="auth-footer">
                     <p>
