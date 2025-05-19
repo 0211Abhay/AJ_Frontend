@@ -50,6 +50,7 @@ const Properties = () => {
     const [isAddPropertyModalOpen, setIsAddPropertyModalOpen] = useState(false);
     const [propertyToEdit, setPropertyToEdit] = useState(null);
     const [isExporting, setIsExporting] = useState(false);
+    const [exportStatus, setExportStatus] = useState({ success: false, message: '', count: 0 });
 
     // Helper function to process property data from API response
     const processFetchedProperties = (data) => {
@@ -394,29 +395,77 @@ const Properties = () => {
                     <FaPlus /> Add Property
                 </button>
                 <button
-                    className="export-btn"
                     onClick={() => {
-                        // Get broker ID from localStorage
-                        const brokerId = localStorage.getItem('brokerId');
+                        // Get broker ID from localStorage or context
+                        const brokerId = broker?.brokerId || broker?.id || localStorage.getItem('brokerId');
                         if (!brokerId) {
-                            alert('Error: Broker ID not found. Please log in again.');
+                            setExportStatus({
+                                success: false,
+                                message: 'Broker ID not found. Please log in again.',
+                                count: 0
+                            });
                             return;
                         }
 
-                        // Activate export component
+                        // Reset previous export status and start new export
+                        setExportStatus({ success: false, message: 'Exporting properties...', count: 0 });
                         setIsExporting(true);
-                        setTimeout(() => setIsExporting(false), 3000); // Reset after 3 seconds
-
-                        // Show feedback to user
-                        alert('Exporting properties to Excel...');
                     }}
+                    className={`export-btn ${isExporting ? 'exporting' : ''}`}
+                    disabled={isExporting}
                     aria-label="Export Properties"
                 >
-                    <FaFileExport /> Export
+                    {isExporting ? (
+                        <>
+                            <span className="export-spinner"></span> Exporting...
+                        </>
+                    ) : (
+                        <>
+                            <FaFileExport /> Export
+                        </>
+                    )}
                 </button>
 
+                {/* Export status message */}
+                {exportStatus.message && (
+                    <div className={`export-status ${exportStatus.success ? 'success' : 'error'}`}>
+                        {exportStatus.message}
+                        {exportStatus.success && exportStatus.count > 0 && (
+                            <span className="export-count">({exportStatus.count} properties exported)</span>
+                        )}
+                    </div>
+                )}
+
                 {/* Export component - only rendered when exporting is active */}
-                {isExporting && <ExportProperties brokerId={localStorage.getItem('brokerId')} />}
+                {isExporting && (
+                    <ExportProperties 
+                        brokerId={broker?.brokerId || broker?.id || localStorage.getItem('brokerId')} 
+                        onExportComplete={(count) => {
+                            setExportStatus({
+                                success: true,
+                                message: 'Export completed successfully!',
+                                count: count
+                            });
+                            setIsExporting(false);
+                            // Clear success message after 5 seconds
+                            setTimeout(() => {
+                                setExportStatus(prev => prev.success ? { success: false, message: '', count: 0 } : prev);
+                            }, 5000);
+                        }}
+                        onExportError={(errorMessage) => {
+                            setExportStatus({
+                                success: false,
+                                message: `Export failed: ${errorMessage}`,
+                                count: 0
+                            });
+                            setIsExporting(false);
+                            // Clear error message after 5 seconds
+                            setTimeout(() => {
+                                setExportStatus(prev => !prev.success ? { success: false, message: '', count: 0 } : prev);
+                            }, 5000);
+                        }}
+                    />
+                )}
             </div>
 
             <button
