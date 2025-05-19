@@ -59,25 +59,42 @@ const Client = () => {
 
             // Fetch schedules with authentication
             try {
-                const schedulesRes = await axios.get(`http://localhost:5001/api/schedule/client/${clientId}`, {
-                    headers: authHeader
-                });
+                // Use the updated endpoint without authentication headers
+                const schedulesRes = await axios.get(`http://localhost:5001/api/schedules/getSchedulesByClient/${clientId}`);
                 
                 console.log('Fetched schedules:', schedulesRes.data);
-                setClientSchedules(schedulesRes.data || []);
-                
-                // Fetch property for the first schedule
-                if (schedulesRes.data && schedulesRes.data.length > 0 && schedulesRes.data[0].property_id) {
-                    const propertyId = schedulesRes.data[0].property_id;
-                    console.log('Fetching property with ID:', propertyId);
-
-                    const propertyRes = await axios.get(`http://localhost:5001/api/property/getOneProperty/${propertyId}`, {
-                        headers: authHeader
-                    });
-                    
-                    console.log('Fetched property data:', propertyRes.data);
+                // Check if the response has the expected structure
+                if (schedulesRes.data && Array.isArray(schedulesRes.data)) {
+                    setClientSchedules(schedulesRes.data);
+                } else if (schedulesRes.data && Array.isArray(schedulesRes.data.schedules)) {
+                    setClientSchedules(schedulesRes.data.schedules);
                 } else {
-                    console.log('No schedules or no property_id found.');
+                    console.log('Unexpected schedule data format:', schedulesRes.data);
+                    setClientSchedules([]);
+                }
+                
+                // Fetch property for the first schedule if available
+                const schedules = Array.isArray(schedulesRes.data) ? schedulesRes.data : 
+                                 (schedulesRes.data && Array.isArray(schedulesRes.data.schedules) ? schedulesRes.data.schedules : []);
+                                 
+                if (schedules.length > 0) {
+                    // Check both property_id and property.propertyId formats
+                    const propertyId = schedules[0].property_id || 
+                                     (schedules[0].property ? schedules[0].property.propertyId : null);
+                                     
+                    if (propertyId) {
+                        console.log('Fetching property with ID:', propertyId);
+                        try {
+                            const propertyRes = await axios.get(`http://localhost:5001/api/property/getOneProperty/${propertyId}`);
+                            console.log('Fetched property data:', propertyRes.data);
+                        } catch (propertyError) {
+                            console.warn('Could not fetch property details:', propertyError);
+                        }
+                    } else {
+                        console.log('No property ID found in schedule data');
+                    }
+                } else {
+                    console.log('No schedules found.');
                 }
             } catch (scheduleError) {
                 console.error('Error fetching schedules:', scheduleError);
@@ -85,27 +102,53 @@ const Client = () => {
                 setClientSchedules([]);
             }
 
-            // Fetch rental information for the client with authentication
+            // Fetch rental information for the client without authentication headers
             try {
-                const rentalRes = await axios.get(`http://localhost:5001/api/rental/getRentalsByClient/${clientId}`, {
-                    headers: authHeader
-                });
+                const rentalRes = await axios.get(`http://localhost:5001/api/rentals/getRentalsByClient/${clientId}`);
                 
                 if (rentalRes.data && rentalRes.data.rentals) {
                     console.log('Fetched rentals:', rentalRes.data.rentals);
 
+                    console.log('Processing rental data for client view:', rentalRes.data.rentals);
+                    
                     // Format the rental data similar to how it's done in Rental.jsx
                     const formattedRentals = rentalRes.data.rentals.map(rental => {
-                        // Get property name
-                        const property = rental.property ? rental.property.name : 'Unknown Property';
-
+                        // Get property name - handle both formats
+                        const property = rental.property ? 
+                            (rental.property.name || rental.property.title || 'Unknown Property') : 
+                            'Unknown Property';
+                        
+                        // Handle both snake_case and camelCase field names
+                        const rentalId = rental.rental_id || rental.rentalId || rental.id;
+                        const startDate = rental.start_date || rental.startDate;
+                        const endDate = rental.end_date || rental.endDate;
+                        const rentAmount = rental.monthly_rent || rental.rentAmount || rental.rent_amount;
+                        
+                        // Format dates properly with validation
+                        let formattedStartDate = 'N/A';
+                        let formattedEndDate = 'N/A';
+                        
+                        if (startDate && !isNaN(new Date(startDate).getTime())) {
+                            formattedStartDate = new Date(startDate).toLocaleDateString();
+                        }
+                        
+                        if (endDate && !isNaN(new Date(endDate).getTime())) {
+                            formattedEndDate = new Date(endDate).toLocaleDateString();
+                        }
+                        
+                        // Format amount with validation
+                        let formattedAmount = 'N/A';
+                        if (rentAmount && !isNaN(parseFloat(rentAmount))) {
+                            formattedAmount = `$${parseFloat(rentAmount).toFixed(2)}`;
+                        }
+                        
                         return {
                             ...rental,
-                            id: rental.rental_id || rental.id,
+                            id: rentalId,
                             propertyName: property,
-                            formattedStartDate: new Date(rental.start_date).toLocaleDateString(),
-                            formattedEndDate: new Date(rental.end_date).toLocaleDateString(),
-                            formattedAmount: `$${rental.monthly_rent || rental.rent_amount}`
+                            formattedStartDate: formattedStartDate,
+                            formattedEndDate: formattedEndDate,
+                            formattedAmount: formattedAmount
                         };
                     });
 
@@ -665,37 +708,40 @@ const Client = () => {
                                 </div>
 
                                 <div className="rentals-section">
-                                    <h3>Rental Properties</h3>
-                                    {clientRentals.length > 0 ? (
-                                        <div className="rental-table">
-                                            <div className="rental-header" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', fontWeight: 'bold' }}>
-                                                <span>Property</span>
-                                                <span>Start Date</span>
-                                                <span>End Date</span>
-                                                <span>Monthly Rent</span>
-                                                <span>Actions</span>
-                                            </div>
-                                            {clientRentals.map(rental => (
-                                                <div key={rental.id} className="rental-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', alignItems: 'center' }}>
-                                                    <span>{rental.propertyName}</span>
-                                                    <span>{rental.formattedStartDate}</span>
-                                                    <span>{rental.formattedEndDate}</span>
-                                                    <span>{rental.formattedAmount}</span>
-                                                    <button
-                                                        className="view-details-btn"
-                                                        onClick={() => {
-                                                            setSelectedRental(rental);
-                                                            setIsRentalDetailsModalOpen(true);
-                                                        }}
-                                                    >
-                                                        Show Details
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="no-data">No rental properties found</p>
-                                    )}
+                                     <h3>Rental Properties</h3>
+                                     {clientRentals.length > 0 ? (
+                                         <div className="rental-table">
+                                             <div className="rental-header" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', fontWeight: 'bold' }}>
+                                                 <span>Property</span>
+                                                 <span>Start Date</span>
+                                                 <span>End Date</span>
+                                                 <span>Monthly Rent</span>
+                                                 <span>Actions</span>
+                                             </div>
+                                             {clientRentals.map(rental => {
+                                                 console.log('Rendering rental in client details:', rental);
+                                                 return (
+                                                     <div key={rental.id} className="rental-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', alignItems: 'center' }}>
+                                                         <span>{rental.propertyName || 'Unknown Property'}</span>
+                                                         <span>{rental.formattedStartDate || 'N/A'}</span>
+                                                         <span>{rental.formattedEndDate || 'N/A'}</span>
+                                                         <span>{rental.formattedAmount || 'N/A'}</span>
+                                                         <button
+                                                             className="view-details-btn"
+                                                             onClick={() => {
+                                                                 setSelectedRental(rental);
+                                                                 setIsRentalDetailsModalOpen(true);
+                                                             }}
+                                                         >
+                                                             Show Details
+                                                         </button>
+                                                     </div>
+                                                 );
+                                             })}
+                                         </div>
+                                     ) : (
+                                         <p className="no-data">No rental properties found</p>
+                                     )}
                                 </div>
                             </>
                         )}
