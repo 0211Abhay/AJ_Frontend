@@ -48,20 +48,20 @@ const Client = () => {
         setErrorDetails(null);
         try {
             console.log('Fetching client details for client ID:', clientId);
-            
+
             // Get the authentication token
             const token = localStorage.getItem('token');
             if (!token) {
                 throw new Error('Authentication token not found. Please log in again.');
             }
-            
+
             const authHeader = { 'Authorization': `Bearer ${token}` };
 
             // Fetch schedules with authentication
             try {
                 // Use the updated endpoint without authentication headers
                 const schedulesRes = await axios.get(`http://localhost:5001/api/schedules/getSchedulesByClient/${clientId}`);
-                
+
                 console.log('Fetched schedules:', schedulesRes.data);
                 // Check if the response has the expected structure
                 if (schedulesRes.data && Array.isArray(schedulesRes.data)) {
@@ -72,16 +72,16 @@ const Client = () => {
                     console.log('Unexpected schedule data format:', schedulesRes.data);
                     setClientSchedules([]);
                 }
-                
+
                 // Fetch property for the first schedule if available
-                const schedules = Array.isArray(schedulesRes.data) ? schedulesRes.data : 
-                                 (schedulesRes.data && Array.isArray(schedulesRes.data.schedules) ? schedulesRes.data.schedules : []);
-                                 
+                const schedules = Array.isArray(schedulesRes.data) ? schedulesRes.data :
+                    (schedulesRes.data && Array.isArray(schedulesRes.data.schedules) ? schedulesRes.data.schedules : []);
+
                 if (schedules.length > 0) {
                     // Check both property_id and property.propertyId formats
-                    const propertyId = schedules[0].property_id || 
-                                     (schedules[0].property ? schedules[0].property.propertyId : null);
-                                     
+                    const propertyId = schedules[0].property_id ||
+                        (schedules[0].property ? schedules[0].property.propertyId : null);
+
                     if (propertyId) {
                         console.log('Fetching property with ID:', propertyId);
                         try {
@@ -105,43 +105,43 @@ const Client = () => {
             // Fetch rental information for the client without authentication headers
             try {
                 const rentalRes = await axios.get(`http://localhost:5001/api/rentals/getRentalsByClient/${clientId}`);
-                
+
                 if (rentalRes.data && rentalRes.data.rentals) {
                     console.log('Fetched rentals:', rentalRes.data.rentals);
 
                     console.log('Processing rental data for client view:', rentalRes.data.rentals);
-                    
+
                     // Format the rental data similar to how it's done in Rental.jsx
                     const formattedRentals = rentalRes.data.rentals.map(rental => {
                         // Get property name - handle both formats
-                        const property = rental.property ? 
-                            (rental.property.name || rental.property.title || 'Unknown Property') : 
+                        const property = rental.property ?
+                            (rental.property.name || rental.property.title || 'Unknown Property') :
                             'Unknown Property';
-                        
+
                         // Handle both snake_case and camelCase field names
                         const rentalId = rental.rental_id || rental.rentalId || rental.id;
                         const startDate = rental.start_date || rental.startDate;
                         const endDate = rental.end_date || rental.endDate;
                         const rentAmount = rental.monthly_rent || rental.rentAmount || rental.rent_amount;
-                        
+
                         // Format dates properly with validation
                         let formattedStartDate = 'N/A';
                         let formattedEndDate = 'N/A';
-                        
+
                         if (startDate && !isNaN(new Date(startDate).getTime())) {
                             formattedStartDate = new Date(startDate).toLocaleDateString();
                         }
-                        
+
                         if (endDate && !isNaN(new Date(endDate).getTime())) {
                             formattedEndDate = new Date(endDate).toLocaleDateString();
                         }
-                        
+
                         // Format amount with validation
                         let formattedAmount = 'N/A';
                         if (rentAmount && !isNaN(parseFloat(rentAmount))) {
                             formattedAmount = `$${parseFloat(rentAmount).toFixed(2)}`;
                         }
-                        
+
                         return {
                             ...rental,
                             id: rentalId,
@@ -159,16 +159,16 @@ const Client = () => {
                         const rentalIds = formattedRentals.map(r => r.id);
                         try {
                             // Fetch all payments for all rentals in one request if possible
-                            const paymentsPromises = rentalIds.map(rentalId => 
+                            const paymentsPromises = rentalIds.map(rentalId =>
                                 axios.get(`http://localhost:5001/api/rental/payments/${rentalId}`, {
                                     headers: authHeader
                                 })
                             );
-                            
+
                             const paymentsResponses = await Promise.all(paymentsPromises);
                             const allPayments = paymentsResponses.flatMap(res => res.data || []);
                             console.log('Fetched payments for rentals:', allPayments);
-                            
+
                             setPaidPayments(allPayments);
                         } catch (paymentError) {
                             console.error('Error fetching rental payments:', paymentError);
@@ -198,18 +198,18 @@ const Client = () => {
             // Reset any previous errors
             setErrorDetails(null);
             setLoadingDetails(true);
-            
+
             // Set the selected client and open the modal
             setSelectedClient(client);
             setIsProfileModalOpen(true);
-            
+
             // Check if we have a valid client ID
             if (!client || !client.id) {
                 throw new Error('Invalid client data: Missing client ID');
             }
-            
+
             console.log('Viewing details for client:', client.name, 'ID:', client.id);
-            
+
             // Fetch client details with authentication
             await fetchClientDetails(client.id);
         } catch (error) {
@@ -225,13 +225,13 @@ const Client = () => {
         setClients(data.map(client => {
             // Extract client ID from various possible properties
             const clientId = client.client_id || client.id || client.clientId;
-            
+
             console.log('Extracted client ID:', clientId, 'from client:', client);
-            
+
             if (!clientId) {
                 console.warn('No client ID found for client:', client);
             }
-            
+
             return {
                 id: clientId,
                 name: client.name,
@@ -248,12 +248,12 @@ const Client = () => {
         try {
             // Try to get broker ID from context first, then localStorage as fallback
             let brokerId = broker?.brokerId || broker?.id;
-            
+
             // If not in context, try localStorage
             if (!brokerId) {
                 brokerId = localStorage.getItem('brokerId');
             }
-            
+
             console.log('Using broker ID:', brokerId);
 
             // Ensure broker ID is available
@@ -263,7 +263,7 @@ const Client = () => {
 
             // Get the authentication token
             const token = localStorage.getItem('token');
-            
+
             // Use the correct GET endpoint with the broker ID and include the token in headers
             const response = await axios.get(`http://localhost:5001/api/clients/broker/${brokerId}`, {
                 headers: {
@@ -296,22 +296,22 @@ const Client = () => {
         try {
             // Try to get broker ID from context first, then localStorage as fallback
             let brokerId = broker?.brokerId || broker?.id;
-            
+
             // If not in context, try localStorage
             if (!brokerId) {
                 brokerId = localStorage.getItem('brokerId');
             }
-            
+
             console.log('Using broker ID for client creation:', brokerId);
 
             // Ensure broker ID is available
             if (!brokerId) {
                 throw new Error('Broker ID not found. Please log in again.');
             }
-            
+
             // Get the authentication token
             const token = localStorage.getItem('token');
-            
+
             // Use the correct endpoint and data structure
             const response = await axios.post('http://localhost:5001/api/clients', {
                 name: currentClient.name,
@@ -355,36 +355,36 @@ const Client = () => {
             setError('Please fill all required fields');
             return;
         }
-    
+
         try {
             // Validate client ID
             if (!currentClient.id) {
                 throw new Error('Client ID is missing. Cannot update client.');
             }
-            
+
             console.log('Updating client with ID:', currentClient.id);
-            
+
             // Try to get broker ID from context first, then localStorage as fallback
             let brokerId = broker?.brokerId || broker?.id;
-            
+
             // If not in context, try localStorage
             if (!brokerId) {
                 brokerId = localStorage.getItem('brokerId');
             }
-            
+
             console.log('Using broker ID for client update:', brokerId);
 
             // Ensure broker ID is available
             if (!brokerId) {
                 throw new Error('Broker ID not found. Please log in again.');
             }
-            
+
             // Get the authentication token
             const token = localStorage.getItem('token');
             if (!token) {
                 throw new Error('Authentication token not found. Please log in again.');
             }
-            
+
             // Use the correct endpoint and data structure
             const response = await axios.put(`http://localhost:5001/api/clients/${currentClient.id}`, {
                 name: currentClient.name,
@@ -400,7 +400,7 @@ const Client = () => {
                     'Authorization': `Bearer ${token}`
                 }
             });
-    
+
             console.log('Client updated successfully:', response.data);
             await fetchClients();
             resetForm();
@@ -428,7 +428,7 @@ const Client = () => {
             try {
                 // Get the authentication token
                 const token = localStorage.getItem('token');
-                
+
                 // Use the correct API endpoint that matches the backend controller
                 const response = await axios.delete(`http://localhost:5001/api/clients/${id}`, {
                     headers: {
@@ -505,11 +505,11 @@ const Client = () => {
                             alert('Error: Broker ID not found. Please log in again.');
                             return;
                         }
-                        
+
                         // Activate export component
                         setIsExporting(true);
                         setTimeout(() => setIsExporting(false), 3000); // Reset after 3 seconds
-                        
+
                         // Show feedback to user
                         alert('Exporting clients to Excel...');
                     }}
@@ -518,7 +518,7 @@ const Client = () => {
                 >
                     <FaFileExport /> Export
                 </button>
-                
+
                 {/* Export component - only rendered when exporting is active */}
                 {isExporting && <ExportClients brokerId={localStorage.getItem('brokerId')} />}
             </div>
@@ -708,40 +708,40 @@ const Client = () => {
                                 </div>
 
                                 <div className="rentals-section">
-                                     <h3>Rental Properties</h3>
-                                     {clientRentals.length > 0 ? (
-                                         <div className="rental-table">
-                                             <div className="rental-header" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', fontWeight: 'bold' }}>
-                                                 <span>Property</span>
-                                                 <span>Start Date</span>
-                                                 <span>End Date</span>
-                                                 <span>Monthly Rent</span>
-                                                 <span>Actions</span>
-                                             </div>
-                                             {clientRentals.map(rental => {
-                                                 console.log('Rendering rental in client details:', rental);
-                                                 return (
-                                                     <div key={rental.id} className="rental-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', alignItems: 'center' }}>
-                                                         <span>{rental.propertyName || 'Unknown Property'}</span>
-                                                         <span>{rental.formattedStartDate || 'N/A'}</span>
-                                                         <span>{rental.formattedEndDate || 'N/A'}</span>
-                                                         <span>{rental.formattedAmount || 'N/A'}</span>
-                                                         <button
-                                                             className="view-details-btn"
-                                                             onClick={() => {
-                                                                 setSelectedRental(rental);
-                                                                 setIsRentalDetailsModalOpen(true);
-                                                             }}
-                                                         >
-                                                             Show Details
-                                                         </button>
-                                                     </div>
-                                                 );
-                                             })}
-                                         </div>
-                                     ) : (
-                                         <p className="no-data">No rental properties found</p>
-                                     )}
+                                    <h3>Rental Properties</h3>
+                                    {clientRentals.length > 0 ? (
+                                        <div className="rental-table">
+                                            <div className="rental-header" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', fontWeight: 'bold' }}>
+                                                <span>Property</span>
+                                                <span>Start Date</span>
+                                                <span>End Date</span>
+                                                <span>Monthly Rent</span>
+                                                <span>Actions</span>
+                                            </div>
+                                            {clientRentals.map(rental => {
+                                                console.log('Rendering rental in client details:', rental);
+                                                return (
+                                                    <div key={rental.id} className="rental-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', alignItems: 'center' }}>
+                                                        <span>{rental.propertyName || 'Unknown Property'}</span>
+                                                        <span>{rental.formattedStartDate || 'N/A'}</span>
+                                                        <span>{rental.formattedEndDate || 'N/A'}</span>
+                                                        <span>{rental.formattedAmount || 'N/A'}</span>
+                                                        <button
+                                                            className="view-details-btn"
+                                                            onClick={() => {
+                                                                setSelectedRental(rental);
+                                                                setIsRentalDetailsModalOpen(true);
+                                                            }}
+                                                        >
+                                                            Show Details
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <p className="no-data">No rental properties found</p>
+                                    )}
                                 </div>
                             </>
                         )}
