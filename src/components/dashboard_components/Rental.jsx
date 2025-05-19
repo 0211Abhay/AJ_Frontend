@@ -93,9 +93,13 @@ const Rental = () => {
             // Fetch properties for this broker
             let propertiesData = [];
             try {
-                const propertiesResponse = await axios.get(`http://localhost:5001/api/property/getPropertiesByBroker/${currentBrokerId}`);
+                // Use the updated API endpoint that matches the backend controller
+                const propertiesResponse = await axios.get(`http://localhost:5001/api/properties/broker/${currentBrokerId}`);
                 if (propertiesResponse.data) {
-                    propertiesData = propertiesResponse.data.properties || [];
+                    // Handle both array response and object with properties field
+                    propertiesData = Array.isArray(propertiesResponse.data) ? 
+                        propertiesResponse.data : 
+                        (propertiesResponse.data.properties || []);
                     console.log('Broker properties:', propertiesData);
                 }
             } catch (propError) {
@@ -105,11 +109,19 @@ const Rental = () => {
             // If no properties found for this broker, fetch all properties as fallback
             if (!propertiesData || propertiesData.length === 0) {
                 try {
-                    const allPropertiesResponse = await axios.get('http://localhost:5001/api/property/getAllProperty');
-                    if (allPropertiesResponse.data && allPropertiesResponse.data.properties) {
-                        // Filter properties by broker_id if possible, otherwise show all
-                        propertiesData = allPropertiesResponse.data.properties.filter(property =>
-                            !currentBrokerId || property.broker_id.toString() === currentBrokerId.toString()
+                    // Use the updated API endpoint
+                    const allPropertiesResponse = await axios.get('http://localhost:5001/api/properties');
+                    if (allPropertiesResponse.data) {
+                        // Handle both array response and object with properties field
+                        const allProperties = Array.isArray(allPropertiesResponse.data) ? 
+                            allPropertiesResponse.data : 
+                            (allPropertiesResponse.data.properties || []);
+                            
+                        // Filter properties by broker if possible
+                        propertiesData = allProperties.filter(property =>
+                            !currentBrokerId || 
+                            (property.broker && property.broker.brokerId && 
+                             property.broker.brokerId.toString() === currentBrokerId.toString())
                         );
                         console.log('All properties filtered for broker:', propertiesData);
                     }
@@ -123,13 +135,14 @@ const Rental = () => {
             // Similar approach for clients
             let clientsData = [];
             try {
-                // Use axios for consistent API calls and POST request for getClientsByBroker
-                const clientsResponse = await axios.post('http://localhost:5001/api/client/getClientsByBroker', {
-                    broker_id: currentBrokerId
-                });
+                // Use the updated API endpoint that matches the backend controller
+                const clientsResponse = await axios.get(`http://localhost:5001/api/clients/broker/${currentBrokerId}`);
 
                 if (clientsResponse.data) {
-                    clientsData = clientsResponse.data;
+                    // Handle both array response and object with clients field
+                    clientsData = Array.isArray(clientsResponse.data) ? 
+                        clientsResponse.data : 
+                        (clientsResponse.data.clients || []);
                     console.log('Broker clients:', clientsData);
                 }
             } catch (clientError) {
@@ -139,11 +152,19 @@ const Rental = () => {
             // If no clients found for this broker, fetch all clients as fallback
             if (!clientsData || clientsData.length === 0) {
                 try {
-                    const allClientsResponse = await axios.get('http://localhost:5001/api/client/getAllClient');
+                    // Use the updated API endpoint
+                    const allClientsResponse = await axios.get('http://localhost:5001/api/clients');
                     if (allClientsResponse.data) {
-                        // Filter clients by broker_id if possible, otherwise show all
-                        clientsData = allClientsResponse.data.filter(client =>
-                            !currentBrokerId || client.broker_id.toString() === currentBrokerId.toString()
+                        // Handle both array response and object with clients field
+                        const allClients = Array.isArray(allClientsResponse.data) ? 
+                            allClientsResponse.data : 
+                            (allClientsResponse.data.clients || []);
+                            
+                        // Filter clients by broker if possible
+                        clientsData = allClients.filter(client =>
+                            !currentBrokerId || 
+                            (client.broker && client.broker.brokerId && 
+                             client.broker.brokerId.toString() === currentBrokerId.toString())
                         );
                         console.log('All clients filtered for broker:', clientsData);
                     }
@@ -713,37 +734,68 @@ const Rental = () => {
             }
 
             // Get client and property details for display - handle different API data structures
+            console.log('Looking for client with ID:', newRental.client_id);
+            console.log('Available clients:', clients);
+            
             const selectedClient = clients.find(c => {
-                const clientId = c.client_id || c.id;
+                // Handle different API response structures
+                const clientId = c.clientId || c.client_id || c.id;
+                console.log('Comparing client ID:', clientId, 'with selected ID:', newRental.client_id);
                 return clientId && clientId.toString() === newRental.client_id.toString();
             });
 
+            console.log('Looking for property with ID:', newRental.property_id);
+            console.log('Available properties:', properties);
+            
             const selectedProperty = properties.find(p => {
-                const propertyId = p.property_id || p.id;
+                // Handle different API response structures
+                const propertyId = p.propertyId || p.property_id || p.id;
+                console.log('Comparing property ID:', propertyId, 'with selected ID:', newRental.property_id);
                 return propertyId && propertyId.toString() === newRental.property_id.toString();
             });
 
+            console.log('Selected client:', selectedClient);
+            console.log('Selected property:', selectedProperty);
+            
             if (!selectedClient || !selectedProperty) {
-                alert('Invalid client or property selection');
+                alert('Invalid client or property selection. Please make sure you have selected valid options.');
                 return;
             }
 
             // Prepare data for API request - adapt to Spring Boot entity structure
+            // Make sure to handle potential NaN values from parseInt
+            const brokerId = parseInt(newRental.broker_id);
+            const clientId = parseInt(newRental.client_id);
+            const propertyId = parseInt(newRental.property_id);
+            
+            // Log the parsed IDs for debugging
+            console.log('Parsed IDs:', { brokerId, clientId, propertyId });
+            
+            if (isNaN(brokerId) || isNaN(clientId) || isNaN(propertyId)) {
+                console.error('Invalid ID values:', { 
+                    brokerId: newRental.broker_id, 
+                    clientId: newRental.client_id, 
+                    propertyId: newRental.property_id 
+                });
+                alert('Invalid ID values. Please make sure all selections are valid.');
+                return;
+            }
+            
             const rentalData = {
                 broker: {
-                    brokerId: parseInt(newRental.broker_id)
+                    brokerId: brokerId
                 },
                 client: {
-                    clientId: parseInt(newRental.client_id)
+                    clientId: clientId
                 },
                 property: {
-                    propertyId: parseInt(newRental.property_id)
+                    propertyId: propertyId
                 },
                 startDate: newRental.start_date,
                 endDate: newRental.end_date,
                 rentAmount: parseFloat(newRental.rent_amount),
                 status: newRental.status,
-                notes: newRental.notes
+                notes: newRental.notes || ''
             };
 
             console.log('Sending rental data to backend:', rentalData);
@@ -1515,11 +1567,15 @@ const Rental = () => {
                                             required
                                         >
                                             <option value="">Select Client</option>
-                                            {clients.map(client => (
-                                                <option key={client.client_id || client.id} value={client.client_id || client.id}>
-                                                    {client.name || client.client_name || `Client #${client.client_id || client.id}`}
-                                                </option>
-                                            ))}
+                                            {clients.map(client => {
+                                                // Use consistent ID field for both key and value
+                                                const clientId = client.clientId || client.client_id || client.id;
+                                                return (
+                                                    <option key={`client-${clientId}`} value={clientId}>
+                                                        {client.name || client.client_name || `Client #${clientId}`}
+                                                    </option>
+                                                );
+                                            })}
                                         </select>
                                     )}
                                 </div>
@@ -1535,11 +1591,15 @@ const Rental = () => {
                                             required
                                         >
                                             <option value="">Select Property</option>
-                                            {properties.map(property => (
-                                                <option key={property.property_id || property.id} value={property.property_id || property.id}>
-                                                    {property.name || property.property_name || `Property #${property.property_id || property.id}`}
-                                                </option>
-                                            ))}
+                                            {properties.map(property => {
+                                                // Use consistent ID field for both key and value
+                                                const propertyId = property.propertyId || property.property_id || property.id;
+                                                return (
+                                                    <option key={`property-${propertyId}`} value={propertyId}>
+                                                        {property.name || property.property_name || `Property #${propertyId}`}
+                                                    </option>
+                                                );
+                                            })}
                                         </select>
                                     )}
                                 </div>
