@@ -31,17 +31,17 @@ api.interceptors.response.use(
     },
     async (error) => {
         const originalRequest = error.config;
-        
+
         // If error is 401 (Unauthorized) and we haven't tried to refresh token yet
         if (error.response && error.response.status === 401 && !originalRequest._retry) {
             originalRequest._retry = true;
-            
+
             try {
                 // Try to refresh the token or redirect to login
                 localStorage.removeItem('token');
                 localStorage.removeItem('brokerId');
                 localStorage.removeItem('brokerName');
-                
+
                 // Redirect to login page
                 window.location.href = '/login';
                 return Promise.reject(error);
@@ -49,7 +49,7 @@ api.interceptors.response.use(
                 return Promise.reject(refreshError);
             }
         }
-        
+
         return Promise.reject(error);
     }
 );
@@ -79,10 +79,10 @@ export const AuthProvider = ({ children }) => {
     const checkSession = async () => {
         try {
             setLoading(true);
-            
+
             // Get token from localStorage
             const token = localStorage.getItem('token');
-            
+
             if (!token) {
                 console.log('No token found, user is not authenticated');
                 setBroker(null);
@@ -90,7 +90,7 @@ export const AuthProvider = ({ children }) => {
                 setSessionChecked(true);
                 return;
             }
-            
+
             // Make API call to check session with token
             const response = await api.get('/auth/check');
             console.log('Session check response:', response.data);
@@ -143,7 +143,7 @@ export const AuthProvider = ({ children }) => {
     const login = async (email, password, rememberMe) => {
         try {
             console.log('Login attempt');
-            
+
             const response = await api.post('/auth/login', {
                 email,
                 password,
@@ -222,7 +222,7 @@ export const AuthProvider = ({ children }) => {
             localStorage.removeItem('brokerId');
             localStorage.removeItem('brokerName');
             setBroker(null);
-            
+
             return {
                 success: true, // Return success anyway since we've cleared local state
                 error: error.response?.data?.message || 'An error occurred during logout'
@@ -234,9 +234,9 @@ export const AuthProvider = ({ children }) => {
     const forgotPassword = async (email) => {
         try {
             const response = await api.post('/auth/forgot-password', { email });
-            return { 
-                success: true, 
-                message: response.data.message 
+            return {
+                success: true,
+                message: response.data.message
             };
         } catch (error) {
             console.error('Forgot password error:', error);
@@ -251,9 +251,9 @@ export const AuthProvider = ({ children }) => {
     const verifyResetToken = async (token) => {
         try {
             const response = await api.get(`/auth/verify-reset-token/${token}`);
-            return { 
-                success: response.data.success, 
-                message: response.data.message 
+            return {
+                success: response.data.success,
+                message: response.data.message
             };
         } catch (error) {
             console.error('Token verification error:', error);
@@ -267,13 +267,13 @@ export const AuthProvider = ({ children }) => {
     // Reset password with token
     const resetPassword = async (token, newPassword) => {
         try {
-            const response = await api.post('/auth/reset-password', { 
-                token, 
-                newPassword 
+            const response = await api.post('/auth/reset-password', {
+                token,
+                newPassword
             });
-            return { 
-                success: true, 
-                message: response.data.message 
+            return {
+                success: true,
+                message: response.data.message
             };
         } catch (error) {
             console.error('Password reset error:', error);
@@ -298,7 +298,8 @@ export const AuthProvider = ({ children }) => {
         forgotPassword,
         verifyResetToken,
         resetPassword,
-        isAuthenticated: !!broker
+        isAuthenticated: !!broker,
+        api // Export the API instance
     };
 
     return (

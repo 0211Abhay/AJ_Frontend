@@ -1,9 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
+import { useAuth } from '../../context/AuthContext';
 import '../../style/AddPropertyModel.css';
 
+// Create authenticated axios instance
+const api = axios.create({
+    baseURL: 'http://localhost:5001/api',
+    withCredentials: true,
+    headers: {
+        'Content-Type': 'application/json'
+    }
+});
+
+// Add request interceptor to include auth token in all requests
+api.interceptors.request.use(
+    (config) => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`;
+        }
+        return config;
+    },
+    (error) => {
+        return Promise.reject(error);
+    }
+);
+
 const AddPropertyModel = ({ isOpen, onClose, propertyToEdit = null }) => {
+    // Get auth context for API calls
+    const { broker } = useAuth();
+    
     const modalRef = useRef(null);
     
     useEffect(() => {
@@ -38,8 +65,8 @@ const AddPropertyModel = ({ isOpen, onClose, propertyToEdit = null }) => {
         name: '',
         location: '',
         price: '',
-        property_for: '',
-        property_type: '',
+        property_for: 'Rent',
+        property_type: 'Apartment',
         bedrooms: '',
         bathrooms: '',
         area: '',
@@ -47,15 +74,16 @@ const AddPropertyModel = ({ isOpen, onClose, propertyToEdit = null }) => {
         year_built: '',
         status: 'Available',
         description: '',
-        amenities: [],
-        images: []
+        amenities: []
     });
+    
+    const [error, setError] = useState(null);
+    const [isEditMode, setIsEditMode] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [loading, setLoading] = useState(false);
 
     const [imageFiles, setImageFiles] = useState([]);
-    const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
-    const [loading, setLoading] = useState(false);
-    const [isEditMode, setIsEditMode] = useState(false);
 
     // Initialize form with property data if in edit mode
     useEffect(() => {
@@ -67,9 +95,8 @@ const AddPropertyModel = ({ isOpen, onClose, propertyToEdit = null }) => {
             if (propertyToEdit.amenities) {
                 try {
                     amenitiesArray = JSON.parse(propertyToEdit.amenities);
-                } catch (e) {
-                    console.error('Error parsing amenities:', e);
-                    amenitiesArray = [];
+                } catch (err) {
+                    console.error('Error parsing amenities:', err);
                 }
             }
 
@@ -138,8 +165,8 @@ const AddPropertyModel = ({ isOpen, onClose, propertyToEdit = null }) => {
             name: '',
             location: '',
             price: '',
-            property_for: '',
-            property_type: '',
+            property_for: 'Rent',
+            property_type: 'Apartment',
             bedrooms: '',
             bathrooms: '',
             area: '',
@@ -160,6 +187,7 @@ const AddPropertyModel = ({ isOpen, onClose, propertyToEdit = null }) => {
         setLoading(true);
         setError(null);
         setSuccess(null);
+        setIsSubmitting(true);
 
         // Validate required fields
         const requiredFields = ['name', 'location', 'price', 'property_for', 'property_type'];
@@ -168,6 +196,7 @@ const AddPropertyModel = ({ isOpen, onClose, propertyToEdit = null }) => {
         if (missingFields.length > 0) {
             setError(`Please fill in the following required fields: ${missingFields.join(', ')}`);
             setLoading(false);
+            setIsSubmitting(false);
             return;
         }
 
@@ -195,52 +224,25 @@ const AddPropertyModel = ({ isOpen, onClose, propertyToEdit = null }) => {
 
             console.log(`${isEditMode ? 'Updating' : 'Sending'} property data:`, propertyPayload);
 
-            // Update URLs to match Spring Boot endpoints
-            let url = 'http://localhost:5001/api/properties';
-            let method = 'POST';
+            // Determine if we're creating or updating
+            let endpoint = '/properties';
+            let method = 'post';
 
             if (isEditMode && propertyToEdit) {
-                url = `http://localhost:5001/api/properties/${propertyToEdit.property_id}`;
-                method = 'PUT';
+                endpoint = `/properties/${propertyToEdit.property_id}`;
+                method = 'put';
             }
 
-            // Get authentication token from localStorage
-            const token = localStorage.getItem('token');
-            
-            // Prepare headers with authentication token
-            const headers = {
-                'Content-Type': 'application/json'
-            };
-            
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
+            // Use the API instance to make the request
+            let response;
+            if (method === 'post') {
+                response = await api.post(endpoint, propertyPayload);
+            } else {
+                response = await api.put(endpoint, propertyPayload);
             }
-            
-            const response = await fetch(url, {
-                method: method,
-                headers: headers,
-                body: JSON.stringify(propertyPayload)
-            });
 
-            // Check if response is ok before trying to parse JSON
-            if (!response.ok) {
-                // For 401 errors, provide a more specific message
-                if (response.status === 401) {
-                    throw new Error('Authentication failed. Please log in again.');
-                }
-                
-                // Try to parse error message from response if possible
-                try {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || errorData.message || `Failed to ${isEditMode ? 'update' : 'add'} property`);
-                } catch (parseError) {
-                    // If we can't parse the response, use a generic error message
-                    throw new Error(`Failed to ${isEditMode ? 'update' : 'add'} property. Server returned ${response.status}`);
-                }
-            }
-            
-            // Parse the response data
-            const responseData = await response.json();
+            // Success - the data is already in the response with axios
+            const responseData = response.data;
 
             console.log(`Property ${isEditMode ? 'updated' : 'added'} successfully:`, responseData);
             setSuccess(`Property ${isEditMode ? 'updated' : 'added'} successfully!`);

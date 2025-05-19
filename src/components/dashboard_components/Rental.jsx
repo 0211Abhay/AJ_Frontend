@@ -270,17 +270,27 @@ const Rental = () => {
             
             if (!currentBrokerId) {
                 console.error('No broker ID found in localStorage');
-                setError('Broker ID not found. Please log in again.');
+                console.warn('Proceeding with empty rental data');
+                setRentals([]);
+                setLeases([]);
                 setLoadingData(false);
                 return;
             }
 
             // Fetch rentals from the API using the broker-specific endpoint
-            const rentalResponse = await axios.get(`http://localhost:5001/api/rental/getRentalsByBroker/${currentBrokerId}`);
+            const rentalResponse = await axios.get(`http://localhost:5001/api/rentals/getRentalsByBroker/${currentBrokerId}`);
+            console.log('Rental response:', rentalResponse.data);
 
             // Fetch paid payments filtered by broker ID
-            const paidPaymentsResponse = await axios.get(`http://localhost:5001/api/payment/getAllPaidPayments/${currentBrokerId}`);
-            const fetchedPaidPayments = paidPaymentsResponse.data?.payments || [];
+            let fetchedPaidPayments = [];
+            try {
+                const paidPaymentsResponse = await axios.get(`http://localhost:5001/api/payment/getAllPaidPayments/${currentBrokerId}`);
+                fetchedPaidPayments = paidPaymentsResponse.data?.payments || [];
+                console.log(`Fetched ${fetchedPaidPayments.length} paid payments for broker ID: ${currentBrokerId}`);
+            } catch (paymentError) {
+                console.warn('Could not fetch payment data, proceeding with empty payments list:', paymentError);
+                // Continue with empty payments list
+            }
 
             // Store the paid payments separately for the Paid section
             setPaidPayments(fetchedPaidPayments);
@@ -289,23 +299,23 @@ const Rental = () => {
             if (rentalResponse.data && rentalResponse.data.rentals) {
                 // Map the rental data for the Due and Overdue sections
                 const formattedRentals = rentalResponse.data.rentals.map(rental => {
-                    // Get client name (tenant)
+                    // Get client name (tenant) - adapt to Spring Boot entity structure
                     const tenant = rental.client ? rental.client.name : 'Unknown Client';
 
-                    // Get property name
-                    const property = rental.property ? rental.property.name : 'Unknown Property';
+                    // Get property name - adapt to Spring Boot entity structure
+                    const property = rental.property ? rental.property.title || rental.property.name : 'Unknown Property';
 
                     // Get current date for comparison (remove time portion for accurate date comparison)
                     const today = new Date();
                     today.setHours(0, 0, 0, 0); // Set to beginning of day for accurate comparison
 
-                    // Parse the due date and normalize it as well
-                    const dueDate = new Date(rental.end_date);
+                    // Parse the due date and normalize it as well - adapt to Spring Boot entity structure
+                    const dueDate = new Date(rental.endDate || rental.end_date);
                     dueDate.setHours(0, 0, 0, 0);
 
-                    // Check if this rental has a paid payment in the rent_payments table
+                    // Check if this rental has a paid payment in the rent_payments table - adapt to Spring Boot entity structure
                     const hasPaidPayment = fetchedPaidPayments.some(payment =>
-                        payment.rental_id === rental.rental_id && payment.status.toLowerCase() === 'paid'
+                        payment.rental_id === (rental.rentalId || rental.rental_id) && payment.status.toLowerCase() === 'paid'
                     );
 
                     // Determine payment status based on new criteria:
@@ -336,19 +346,20 @@ const Rental = () => {
                         }
                     }
 
+                    // Adapt to Spring Boot entity structure
                     return {
-                        id: rental.rental_id,
+                        id: rental.rentalId || rental.rental_id,
                         property: property,
                         tenant: tenant,
-                        dueDate: rental.end_date,
-                        amount: parseFloat(rental.rent_amount),
+                        dueDate: rental.endDate || rental.end_date,
+                        amount: parseFloat(rental.rentAmount || rental.rent_amount),
                         status: status,
-                        paymentDate: status === 'paid' ? (rental.updated_at || new Date().toISOString().split('T')[0]) : '',
+                        paymentDate: status === 'paid' ? (rental.updatedAt || rental.updated_at || new Date().toISOString().split('T')[0]) : '',
                         method: status === 'paid' ? 'Bank Transfer' : '',
-                        property_id: rental.property_id,
-                        client_id: rental.client_id,
-                        start_date: rental.start_date,
-                        end_date: rental.end_date,
+                        property_id: rental.property ? rental.property.propertyId : rental.property_id,
+                        client_id: rental.client ? rental.client.clientId : rental.client_id,
+                        start_date: rental.startDate || rental.start_date,
+                        end_date: rental.endDate || rental.end_date,
                         notes: rental.notes || ''
                     };
                 });
@@ -393,9 +404,17 @@ const Rental = () => {
             }
         } catch (error) {
             console.error('Error fetching rentals:', error);
+            // Set empty data instead of showing an alert
             setRentals([]);
             setLeases([]);
-            alert('Failed to load rentals. Please try again later.');
+            // Update dashboard metrics to show zeros
+            setDashboardMetrics({
+                activeRentals: 0,
+                paidRentals: 0,
+                overduePayments: 0,
+                expiringLeases: 0
+            });
+            console.log('Setting empty rental data due to error');
         } finally {
             setLoadingData(false);
         }
@@ -709,40 +728,52 @@ const Rental = () => {
                 return;
             }
 
-            // Prepare data for API request
+            // Prepare data for API request - adapt to Spring Boot entity structure
             const rentalData = {
-                broker_id: parseInt(newRental.broker_id),
-                client_id: parseInt(newRental.client_id),
-                property_id: parseInt(newRental.property_id),
-                start_date: newRental.start_date,
-                end_date: newRental.end_date,
-                rent_amount: parseFloat(newRental.rent_amount),
+                broker: {
+                    brokerId: parseInt(newRental.broker_id)
+                },
+                client: {
+                    clientId: parseInt(newRental.client_id)
+                },
+                property: {
+                    propertyId: parseInt(newRental.property_id)
+                },
+                startDate: newRental.start_date,
+                endDate: newRental.end_date,
+                rentAmount: parseFloat(newRental.rent_amount),
                 status: newRental.status,
                 notes: newRental.notes
             };
 
+            console.log('Sending rental data to backend:', rentalData);
+            
             // Show loading state
             setLoadingData(true);
 
-            const response = await axios.post('http://localhost:5001/api/rental/createRental', rentalData);
+            const response = await axios.post('http://localhost:5001/api/rentals/createRental', rentalData);
             
             // If successful, refresh the rentals data to show the new entry
             if (response.data && response.data.rental) {
+                console.log('Rental created successfully:', response.data);
+                
                 // Create a new rental entry for the Rent Payment section
+                // Adapt to Spring Boot response structure
+                const rental = response.data.rental;
                 const newRentalEntry = {
-                    id: response.data.rental.rental_id,
+                    id: rental.rentalId,
                     property: selectedProperty.name || selectedProperty.property_name || 'Unknown Property',
                     tenant: selectedClient.name || selectedClient.client_name || 'Unknown Client',
-                    dueDate: newRental.end_date,
-                    amount: parseFloat(newRental.rent_amount),
-                    status: mapRentalStatusToPaymentStatus(newRental.status),
-                    paymentDate: newRental.status === 'Completed' ? new Date().toISOString() : '',
-                    method: newRental.status === 'Completed' ? 'Bank Transfer' : '',
-                    property_id: parseInt(newRental.property_id),
-                    client_id: parseInt(newRental.client_id),
-                    start_date: newRental.start_date,
-                    end_date: newRental.end_date,
-                    notes: newRental.notes
+                    dueDate: rental.endDate,
+                    amount: parseFloat(rental.rentAmount),
+                    status: mapRentalStatusToPaymentStatus(rental.status),
+                    paymentDate: rental.status === 'COMPLETED' ? new Date().toISOString() : '',
+                    method: rental.status === 'COMPLETED' ? 'Bank Transfer' : '',
+                    property_id: rental.property.propertyId,
+                    client_id: rental.client.clientId,
+                    start_date: rental.startDate,
+                    end_date: rental.endDate,
+                    notes: rental.notes
                 };
 
                 // Add the new rental to the rentals state to immediately display it
@@ -775,9 +806,18 @@ const Rental = () => {
             console.error('Error adding rental:', error);
             
             // Handle specific error cases including redundancy check
-            if (error.response?.data?.error === 'Redundant rental entry') {
-                alert(`${error.response.data.message}\n${error.response.data.details}`);
+            if (error.response?.data?.error === 'Redundant rental entry' || 
+                error.response?.data?.message?.includes('overlaps')) {
+                // Spring Boot validation error for overlapping rentals
+                alert(`${error.response.data.error || error.response.data.message}\n${error.response.data.details || 'Please choose different dates.'}`);
+            } else if (error.response?.status === 400) {
+                // Bad request - validation error
+                alert('Validation error: ' + (error.response?.data?.error || 'Please check your input and try again'));
+            } else if (error.response?.status === 404) {
+                // Not found - client, broker or property not found
+                alert('Not found: ' + (error.response?.data?.error || 'One or more required entities not found'));
             } else {
+                // Generic error
                 alert('Failed to add rental agreement: ' + (error.response?.data?.error || error.message));
             }
         } finally {

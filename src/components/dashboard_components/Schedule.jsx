@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, CheckSquare, Square, XSquare, Bell, Users, MapPin, Search, Clock, CheckCircle, XCircle } from 'lucide-react';
 import axios from 'axios';
+import { useAuth } from '../../context/AuthContext';
 import "../../style/Schedule.css";
 
 const Schedule = () => {
+    // Get auth context for API calls
+    const { broker, api } = useAuth();
+
     const [activeView, setActiveView] = useState('list');
     const [filterStatus, setFilterStatus] = useState('all');
     const [searchQuery, setSearchQuery] = useState('');
@@ -57,19 +61,19 @@ const Schedule = () => {
             setError(null);
 
             try {
-                // Get broker ID from localStorage
-                const currentBrokerId = localStorage.getItem('brokerId');
-                console.log('Current broker ID from localStorage:', currentBrokerId);
+                // Get broker ID from context or localStorage
+                const currentBrokerId = broker?.brokerId || localStorage.getItem('brokerId');
+                console.log('Current broker ID:', currentBrokerId);
 
                 if (!currentBrokerId) {
                     throw new Error('Broker ID not found. Please log in again.');
                 }
 
-                // Fetch schedules for the current broker
-                const schedulesResponse = await axios.get(`http://localhost:5001/api/schedule/broker/${currentBrokerId}`);
+                // Fetch schedules for the current broker using Spring Boot endpoint
+                const schedulesResponse = await api.get(`/schedules/broker/${currentBrokerId}`);
 
-                // Fetch properties for current broker
-                const propertiesResponse = await axios.get(`http://localhost:5001/api/property/getPropertiesByBroker/${currentBrokerId}`);
+                // Fetch properties for current broker using Spring Boot endpoint
+                const propertiesResponse = await api.get(`/properties/broker/${currentBrokerId}`);
                 console.log('Fetched properties for broker (raw response):', propertiesResponse.data);
 
                 // Log the full structure to debug
@@ -80,20 +84,31 @@ const Schedule = () => {
                     dataKeys: Object.keys(propertiesResponse.data || {})
                 });
 
-                // Fetch clients for current broker
-                const clientsResponse = await axios.post('http://localhost:5001/api/client/getClientsByBroker', {
-                    broker_id: currentBrokerId
-                });
-                console.log('Fetched clients for broker:', clientsResponse.data);
+                // Try to fetch clients using Spring Boot endpoint first
+                let clientsResponse;
+                try {
+                    // Using GET endpoint for RESTful approach
+                    clientsResponse = await api.get(`/clients/broker/${currentBrokerId}`);
+                    console.log('Fetched clients using Spring Boot endpoint:', clientsResponse.data);
+                } catch (error) {
+                    console.warn('Error fetching clients with Spring Boot endpoint, trying fallback:', error);
+                    // Fallback to original endpoint if Spring Boot endpoint fails
+                    clientsResponse = await api.post('/client/getClientsByBroker', {
+                        broker_id: currentBrokerId
+                    });
+                    console.log('Fetched clients using fallback endpoint:', clientsResponse.data);
+                }
 
                 // Transform schedule data to match the component's expected format
                 const formattedSchedules = schedulesResponse.data.map(schedule => {
-                    // Format the date and time properly
+                    // Format the time properly from the LocalTime object
                     let formattedTime = 'No time';
                     try {
                         if (schedule.time) {
+                            // Handle ISO time format or time string
+                            const timeString = typeof schedule.time === 'string' ? schedule.time : schedule.time.toString();
                             // Parse time directly without combining with date
-                            const timeParts = schedule.time.split(':');
+                            const timeParts = timeString.split(':');
                             if (timeParts.length >= 2) {
                                 const hours = parseInt(timeParts[0]);
                                 const minutes = parseInt(timeParts[1]);
@@ -106,7 +121,7 @@ const Schedule = () => {
                         console.error('Error formatting time:', error, schedule.time);
                     }
 
-                    // Format the date properly
+                    // Format the date properly from LocalDateTime
                     let formattedDate = 'Unknown Date';
                     try {
                         if (schedule.date) {
@@ -119,66 +134,72 @@ const Schedule = () => {
                         console.error('Error formatting date:', error, schedule.date);
                     }
 
-                    // Format client name
+                    // Format client name from the Client object
+                    // Spring Boot returns full objects with proper casing
                     const clientName = schedule.client
-                        ? `${schedule.client.first_name || ''} ${schedule.client.last_name || ''}`.trim()
+                        ? `${schedule.client.firstName || ''} ${schedule.client.lastName || ''}`.trim()
                         : 'Unknown Client';
 
                     return {
-                        id: schedule.schedule_id,
+                        id: schedule.scheduleId, // Using camelCase as per Spring Boot naming
                         property: schedule.property ? schedule.property.name : 'Unknown Property',
-                        property_id: schedule.property_id,
+                        property_id: schedule.property ? schedule.property.propertyId : null,
                         client: clientName,
-                        client_id: schedule.client_id,
-                        client_name: '', // Initialize client_name field
-                        broker_id: schedule.broker_id,
-                        broker: schedule.broker ? `${schedule.broker.first_name || ''} ${schedule.broker.last_name || ''}`.trim() : 'Unknown Broker',
+                        client_id: schedule.client ? schedule.client.clientId : null,
+                        client_name: clientName, // Set client_name directly
+                        broker_id: schedule.broker ? schedule.broker.brokerId : null,
+                        broker: schedule.broker ? `${schedule.broker.firstName || ''} ${schedule.broker.lastName || ''}`.trim() : 'Unknown Broker',
                         date: formattedDate,
                         time: formattedTime,
-                        status: schedule.status.toLowerCase(),
+                        status: schedule.status ? schedule.status.toLowerCase() : 'pending',
                         contactNumber: schedule.client ? schedule.client.phone : '',
                         email: schedule.client ? schedule.client.email : '',
                         notes: schedule.description || ''
                     };
                 });
 
-                // Handle different possible property response structures
-                let rawProperties = [];
-
-                // Check if response is in the format {properties: [...]} or direct array [...]
-                if (propertiesResponse.data && propertiesResponse.data.properties) {
-                    // Response has {properties: [...]} format
-                    rawProperties = propertiesResponse.data.properties;
-                } else if (Array.isArray(propertiesResponse.data)) {
-                    // Response is a direct array
-                    rawProperties = propertiesResponse.data;
-                } else {
-                    console.error('Unexpected property response format:', propertiesResponse.data);
-                }
-
+                // Handle property response from Spring Boot
+                // Spring Boot returns a direct array of Property objects
+                const rawProperties = Array.isArray(propertiesResponse.data) ? propertiesResponse.data : [];
                 console.log('Raw properties array:', rawProperties);
 
-                // No need to filter by broker_id since the endpoint already filters by broker
+                // Format properties to match the component's expected structure
                 const formattedProperties = rawProperties.map(property => ({
-                    property_id: property.property_id,
-                    name: property.name || property.title || 'Unnamed Property'
+                    property_id: property.propertyId, // Using propertyId from Spring Boot
+                    name: property.name || 'Unnamed Property'
                 }));
-                console.log(`Filtered properties for broker_id=${currentBrokerId}:`, formattedProperties);
+                console.log(`Formatted properties for broker_id=${currentBrokerId}:`, formattedProperties);
 
-                // Format clients data for broker_id from localStorage
-                // clientsResponse.data is already an array based on the console log
-                const clients = clientsResponse.data || [];
+                // Format clients data from Spring Boot response
+                const clients = Array.isArray(clientsResponse.data) ? clientsResponse.data : [];
                 console.log('Clients array:', clients);
 
-                const formattedClients = clients
-                    .filter(client => client.broker_id === parseInt(currentBrokerId))
-                    .map(client => ({
-                        client_id: client.client_id,
-                        name: client.name,
+                // No need to filter by broker_id as the endpoint already does that
+                const formattedClients = clients.map(client => {
+                    // Handle different possible client data structures
+                    // Some APIs might return camelCase (Spring Boot) while others might use snake_case
+                    const clientId = client.clientId || client.client_id;
+                    const firstName = client.firstName || client.first_name || '';
+                    const lastName = client.lastName || client.last_name || '';
+                    const fullName = `${firstName} ${lastName}`.trim();
+
+                    // If we don't have a proper name, use any available identifier
+                    const displayName = fullName || client.name || client.email || `Client ${clientId}`;
+
+                    return {
+                        client_id: clientId,
+                        name: displayName,
                         phone: client.phone,
                         email: client.email
-                    }));
-                console.log('Filtered clients for broker_id=1:', formattedClients);
+                    };
+                });
+
+                console.log(`Formatted clients for broker_id=${currentBrokerId}:`, formattedClients);
+
+                // Add debug info if no clients were found
+                if (formattedClients.length === 0) {
+                    console.warn('No clients were found or formatted. Original data:', clientsResponse.data);
+                }
 
                 setVisits(formattedSchedules);
                 setProperties(formattedProperties); // Use the filtered properties array for rendering
@@ -231,8 +252,19 @@ const Schedule = () => {
     // Function to fetch client information by ID
     const fetchClientById = async (clientId) => {
         try {
-            const response = await axios.get(`http://localhost:5001/api/client/getOneClient/${clientId}`);
-            return response.data.client || response.data; // Return the client object from the response
+            // Try Spring Boot endpoint first
+            try {
+                const response = await api.get(`/clients/${clientId}`);
+                return response.data; // Return the client object from the response
+            } catch (springBootError) {
+                console.warn(`Error with Spring Boot endpoint for client ${clientId}, trying fallback:`, springBootError);
+
+                // Fallback to original endpoint
+                const fallbackResponse = await api.get(`/client/getOneClient/${clientId}`);
+
+                // Handle different response structures
+                return fallbackResponse.data.client || fallbackResponse.data;
+            }
         } catch (error) {
             console.error(`Error fetching client with ID ${clientId}:`, error);
             return null;
@@ -242,8 +274,17 @@ const Schedule = () => {
     // Function to get client name from client ID
     const getClientName = async (clientId) => {
         try {
-            const response = await axios.get(`http://localhost:5001/api/client/getClientName/${clientId}`);
-            return response.data.clientName || 'Unknown Client';
+            const client = await fetchClientById(clientId);
+            if (client) {
+                // Handle different possible client data structures
+                const firstName = client.firstName || client.first_name || '';
+                const lastName = client.lastName || client.last_name || '';
+                const fullName = `${firstName} ${lastName}`.trim();
+
+                // If we don't have a proper name, use any available identifier
+                return fullName || client.name || client.email || `Client ${clientId}` || 'Unknown Client';
+            }
+            return 'Unknown Client';
         } catch (error) {
             console.error(`Error fetching client name for ID ${clientId}:`, error);
             return 'Unknown Client';
@@ -403,8 +444,9 @@ const Schedule = () => {
                 throw new Error(`Invalid status: ${newStatus}`);
             }
 
-            // Update status in the backend
-            const response = await axios.patch(`http://localhost:5001/api/schedule/${id}/status`, {
+            // Update status in the backend using Spring Boot endpoint
+            // Using PUT for the entire resource update as per REST standards
+            const response = await api.put(`/schedules/${id}`, {
                 status: backendStatus
             });
 
@@ -493,66 +535,177 @@ const Schedule = () => {
         e.preventDefault();
 
         try {
-            // Get broker ID from localStorage
-            const currentBrokerId = localStorage.getItem('brokerId');
-            console.log('Using broker ID from localStorage:', currentBrokerId);
+            // Get broker ID from context or localStorage
+            const currentBrokerId = broker?.brokerId || localStorage.getItem('brokerId');
+            console.log('Using broker ID:', currentBrokerId);
 
-            // Format the data for the backend
-            const scheduleData = {
-                property_id: parseInt(newVisitData.property_id),
-                client_id: parseInt(newVisitData.client_id),
-                broker_id: parseInt(currentBrokerId), // Broker ID from localStorage
-                description: newVisitData.description,
-                date: newVisitData.date,
-                time: newVisitData.time,
-                status: 'Pending' // Default status for new visits
-            };
+            // Validate form data
+            if (!newVisitData.date || !newVisitData.time || !newVisitData.property_id || !newVisitData.client_id) {
+                alert('Please fill in all required fields');
+                return;
+            }
 
-            // Send data to the backend
-            const response = await axios.post('http://localhost:5001/api/schedule', scheduleData);
+            // Log the data we're about to send for debugging
+            console.log('Form data to be submitted:', newVisitData);
 
-            // Format the new visit to match the component's expected format
-            const newVisit = {
-                id: response.data.schedule_id,
-                property: response.data.property ? response.data.property.name : 'Unknown Property',
-                property_id: response.data.property_id,
-                client: response.data.client ? `${response.data.client.first_name} ${response.data.client.last_name}` : 'Unknown Client',
-                client_id: response.data.client_id,
-                client_name: '', // Initialize client_name field
-                broker_id: response.data.broker_id,
-                broker: response.data.broker ? `${response.data.broker.first_name} ${response.data.broker.last_name}` : 'Unknown Broker',
-                date: new Date(response.data.date).toISOString().split('T')[0],
-                time: new Date(response.data.date + ' ' + response.data.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                status: 'pending',
-                contactNumber: response.data.client ? response.data.client.phone : '',
-                email: response.data.client ? response.data.client.email : '',
-                notes: response.data.description || ''
-            };
+            // Get token for direct authentication
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Authentication token not found. Please log in again.');
+                return;
+            }
 
-            // Update visits state with the new visit
-            setVisits(prevVisits => [...prevVisits, newVisit]);
+            // Format date and time for backend
+            // The backend Schedule entity has date as LocalDateTime and time as LocalTime
+            // Make sure date is in ISO-8601 format (YYYY-MM-DDThh:mm:ss)
+            const dateStr = new Date(`${newVisitData.date}T${newVisitData.time}:00`).toISOString();
+            // Time should be in hh:mm:ss format
+            const timeStr = `${newVisitData.time}:00`;
 
-            // Update dashboard metrics
-            setDashboardMetrics(prev => ({
-                ...prev,
-                totalScheduled: prev.totalScheduled + 1
-            }));
+            // Try the Spring Boot endpoint first
+            try {
+                // Format the data for the Spring Boot backend according to Schedule.java entity
+                const scheduleData = {
+                    // Create nested objects for relationships
+                    property: {
+                        propertyId: parseInt(newVisitData.property_id)
+                    },
+                    client: {
+                        clientId: parseInt(newVisitData.client_id)
+                    },
+                    broker: {
+                        brokerId: parseInt(currentBrokerId)
+                    },
+                    description: newVisitData.description || '',
+                    date: dateStr,
+                    time: timeStr,
+                    status: 'Pending'
+                };
 
-            // Close the form and reset the form data
-            setShowNewVisitForm(false);
-            setNewVisitData({
-                date: '',
-                time: '',
-                property_id: '',
-                client_id: '',
-                description: ''
-                // broker_id is fixed to 1, so removed from state
-            });
+                console.log('Sending data to Spring Boot endpoint:', scheduleData);
 
+                // Make the request without authentication (since endpoint is now public)
+                const response = await axios({
+                    method: 'post',
+                    url: 'http://localhost:5001/api/schedules',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    data: scheduleData
+                });
+
+                console.log('Spring Boot endpoint response:', response.data);
+                return handleSuccessfulSubmission(response);
+            } catch (springBootError) {
+                console.warn('Error with Spring Boot endpoint, trying fallback:', springBootError);
+
+                // Fallback to original endpoint
+                const fallbackData = {
+                    property_id: parseInt(newVisitData.property_id),
+                    client_id: parseInt(newVisitData.client_id),
+                    broker_id: parseInt(currentBrokerId),
+                    description: newVisitData.description || '',
+                    date: dateStr,
+                    time: timeStr,
+                    status: 'Pending'
+                };
+
+                console.log('Sending data to fallback endpoint:', fallbackData);
+
+                // Make the fallback request without authentication - use the correct endpoint URL
+                const fallbackResponse = await axios({
+                    method: 'post',
+                    url: 'http://localhost:5001/api/schedules',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    data: fallbackData
+                });
+
+                console.log('Fallback endpoint response:', fallbackResponse.data);
+                return handleSuccessfulSubmission(fallbackResponse);
+            }
         } catch (error) {
-            console.error('Error creating visit:', error);
-            alert('Failed to create visit. Please try again.');
+            // Handle API errors with appropriate messages
+            if (error.response) {
+                console.error('API error:', error.response.data);
+                alert('Error creating schedule: ' + (error.response.data.message || 'Please check your input data and try again.'));
+                // Optionally redirect to login page
+                // window.location.href = '/login';
+            } else {
+                console.error('Error creating visit:', error);
+                console.error('Error response data:', error.response?.data);
+                let errorMessage = 'Failed to create visit. Please try again.';
+
+                // Extract more detailed error message if available
+                if (error.response && error.response.data && error.response.data.message) {
+                    errorMessage = error.response.data.message;
+                }
+
+                alert(errorMessage);
+            }
         }
+    };
+
+    // Helper function to handle successful submission response
+    const handleSuccessfulSubmission = (response) => {
+        // Extract the response data
+        const responseData = response.data;
+
+        // Determine field names based on response structure
+        const scheduleId = responseData.scheduleId || responseData.schedule_id;
+        const property = responseData.property || {};
+        const client = responseData.client || {};
+        const broker = responseData.broker || {};
+
+        // Format the new visit to match the component's expected format
+        const newVisit = {
+            id: scheduleId,
+            property: property.name || 'Unknown Property',
+            property_id: property.propertyId || property.property_id || null,
+            client: client.firstName && client.lastName ?
+                `${client.firstName} ${client.lastName}` :
+                (client.first_name && client.last_name ?
+                    `${client.first_name} ${client.last_name}` : 'Unknown Client'),
+            client_id: client.clientId || client.client_id || null,
+            client_name: client.name || (client.firstName && client.lastName ?
+                `${client.firstName} ${client.lastName}` :
+                (client.first_name && client.last_name ?
+                    `${client.first_name} ${client.last_name}` : '')),
+            broker_id: broker.brokerId || broker.broker_id || null,
+            broker: broker.firstName && broker.lastName ?
+                `${broker.firstName} ${broker.lastName}` :
+                (broker.first_name && broker.last_name ?
+                    `${broker.first_name} ${broker.last_name}` : 'Unknown Broker'),
+            date: responseData.date ? new Date(responseData.date).toISOString().split('T')[0] : newVisitData.date,
+            time: responseData.time || newVisitData.time || 'No time',
+            status: 'pending',
+            contactNumber: client.phone || '',
+            email: client.email || '',
+            notes: responseData.description || ''
+        };
+
+        // Update visits state with the new visit
+        setVisits(prevVisits => [...prevVisits, newVisit]);
+
+        // Update dashboard metrics
+        setDashboardMetrics(prev => ({
+            ...prev,
+            totalScheduled: prev.totalScheduled + 1
+        }));
+
+        // Show success message
+        alert('Visit scheduled successfully!');
+
+        // Close the form and reset the form data
+        setShowNewVisitForm(false);
+        setNewVisitData({
+            date: '',
+            time: '',
+            property_id: '',
+            client_id: '',
+            description: ''
+        });
     };
 
     // Dashboard metrics are now managed in state and calculated in the useEffect
@@ -1000,11 +1153,15 @@ const Schedule = () => {
                                             required
                                         >
                                             <option value="">Select Client</option>
-                                            {clients.map((client) => (
-                                                <option key={client.client_id} value={client.client_id}>
-                                                    {client.name}
-                                                </option>
-                                            ))}
+                                            {clients.length > 0 ? (
+                                                clients.map((client) => (
+                                                    <option key={client.client_id} value={client.client_id}>
+                                                        {client.name}
+                                                    </option>
+                                                ))
+                                            ) : (
+                                                <option value="" disabled>No clients available</option>
+                                            )}
                                         </select>
                                     </div>
                                 </div>
